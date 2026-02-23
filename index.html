@@ -448,13 +448,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 'use strict';
 // ── Socket ───────────────────────────────────────────────────
 const socket = io({ transports: ['polling', 'websocket'], upgrade: true });
-socket.on('connect', () => { console.log('[socket] connected:', socket.id); document.getElementById('lob-status').textContent = ''; });
-socket.on('connect_error', (err) => {
-  console.error('[socket] connect_error:', err.message);
+socket.on('connect_error', () => {
   const el = document.getElementById('lob-status');
-  if (el) { el.textContent = 'Connection error: ' + err.message; el.style.color = 'var(--red-l)'; }
+  if (el) { el.textContent = 'Connection error — retrying…'; el.style.color = 'var(--red-l)'; }
 });
-socket.on('disconnect', (reason) => { console.warn('[socket] disconnected:', reason); });
 
 // ── Client state ─────────────────────────────────────────────
 let GS = null;          // last server state snapshot
@@ -927,7 +924,7 @@ socket.on('game_start', ({ yourFaction, opponentFaction, youGoFirst }) => {
   document.getElementById('lobby').classList.add('hidden');
   document.getElementById('game').style.display = 'flex';
   document.getElementById('game').style.flexDirection = 'column';
-  for (let i = 0; i < 4; i++) setTimeout(() => , 180 + i * 70);
+  
   addLog(`Game started! You are ${yourFaction === 'northern' ? 'Northern Realms' : 'Nilfgaard'}. ${youGoFirst ? 'You go first!' : 'Opponent goes first.'}`, true);
   moveLog.push({ msg: `Game started. You: ${yourFaction}`, round: 1, imp: true });
 });
@@ -954,9 +951,9 @@ socket.on('round_result', ({ winner, p1s, p2s, gameOver }) => {
   const scores= document.getElementById('rr-scores');
   const btn   = document.getElementById('rr-btn');
 
-  if (iWon) { title.textContent = '⚔ ROUND WON!'; title.style.color='var(--green-l)'; desc.textContent='You outplayed your opponent!'; setTimeout(() => , 200); }
+  if (iWon) { title.textContent = '⚔ ROUND WON!'; title.style.color='var(--green-l)'; desc.textContent='You outplayed your opponent!'; }
   else if (isDraw) { title.textContent = '⚖ DRAW!'; title.style.color='var(--gold-l)'; desc.textContent='An even contest.'; }
-  else { title.textContent = '💀 ROUND LOST'; title.style.color='var(--red-l)'; desc.textContent='Your opponent prevailed.'; setTimeout(() => , 200); }
+  else { title.textContent = '💀 ROUND LOST'; title.style.color='var(--red-l)'; desc.textContent='Your opponent prevailed.'; }
 
   scores.innerHTML = `<div class="rr-score-chip">YOUR SCORE: ${myScore}</div><div class="rr-score-chip">OPP SCORE: ${oppScore}</div>`;
 
@@ -1038,9 +1035,7 @@ document.getElementById('pass-btn').addEventListener('click', () => {
 
 document.getElementById('redraw-btn').addEventListener('click', openRedrawModal);
 
-document.getElementById('mute-btn').addEventListener('click', () => {
-  const m = !document.getElementById('mute-btn').textContent = m ? '🔇' : '🔊';
-});
+document.getElementById('mute-btn').addEventListener('click', () => {});
 
 document.getElementById('hist-btn').addEventListener('click', () => { openHistoryModal(); });
 document.getElementById('hist-close').addEventListener('click', () => { document.getElementById('hist-modal').classList.remove('show'); });
