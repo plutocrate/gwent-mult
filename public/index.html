@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gwent — PvP</title>
 <script src="/socket.io/socket.io.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap');
 :root{
@@ -458,75 +457,61 @@ let myFaction = null;
 let moveLog = [];
 let logVisible = true;
 
-// ── Audio ─────────────────────────────────────────────────────
-const Snd = (() => {
-  let started = false, muted = false;
-  async function boot() { if (started) return; started = true; await Tone.start(); }
-  const mv  = new Tone.Volume(-4).toDestination();
-  const sv  = new Tone.Volume(-2).connect(mv);
-  const rvb = new Tone.Reverb({ decay: 1.6, preDelay: 0.01, wet: 0.22 }).connect(sv);
-  const rvbB= new Tone.Reverb({ decay: 3.0, preDelay: 0.03, wet: 0.36 }).connect(sv);
-  function now(){ return Tone.now(); }
-  function blip(f,t,d,v,dest,time){ const s=new Tone.Synth({oscillator:{type:t},envelope:{attack:.008,decay:d*.4,sustain:.1,release:d*.6}}).connect(dest||sv);s.triggerAttackRelease(f,d,time||now(),v);setTimeout(()=>s.dispose(),(d+1)*1000); }
-  function metal(f,d,v,time){ const s=new Tone.MetalSynth({frequency:f,envelope:{attack:.001,decay:d,release:.1},harmonicity:5.1,modulationIndex:32,resonance:4000,octaves:1.5}).connect(sv);s.triggerAttackRelease(f,d,time||now(),v);setTimeout(()=>s.dispose(),(d+1.5)*1000); }
-  function noise(t,d,v,ff,dest,time){ const env=new Tone.AmplitudeEnvelope({attack:.003,decay:d*.7,sustain:0,release:d*.3}).connect(dest||sv);const filt=new Tone.Filter(ff,'bandpass').connect(env);const n=new Tone.Noise(t).connect(filt);const tm=time||now();env.triggerAttack(tm);env.triggerRelease(tm+d*.6);n.start(tm);n.stop(tm+d+.1);setTimeout(()=>{n.dispose();filt.dispose();env.dispose();},(d+1)*1000); }
-  // Pre-built hover nodes — one set, reused forever
-  const _hqg=new Tone.Volume(-34).connect(sv);
-  const _henv=new Tone.AmplitudeEnvelope({attack:.003,decay:.035,sustain:0,release:.012}).connect(_hqg);
-  const _hbp=new Tone.Filter({type:'bandpass',frequency:2800,Q:11}).connect(_henv);
-  const _hn=new Tone.Noise('white').connect(_hbp);
-  // _hn is started on first hover and kept running only while needed
-  let _hnRunning=false, _hBusy=false;
-  function hover(){ if(muted||_hBusy)return;_hBusy=true;if(!_hnRunning){_hn.start();_hnRunning=true;}const t=now();_henv.triggerAttack(t);_henv.triggerRelease(t+.025);setTimeout(()=>{_hBusy=false;},60); }
-  function grab(){ if(muted)return;const t=now();noise('brown',.09,.24,370,sv,t);noise('white',.032,.13,2300,sv,t+.01);const k=new Tone.MembraneSynth({pitchDecay:.028,octaves:2.3,envelope:{attack:.001,decay:.075,sustain:0,release:.032}}).connect(sv);k.triggerAttackRelease('G2',.08,t,.4);setTimeout(()=>k.dispose(),500); }
-  function drop(){ if(muted)return;const t=now();const k=new Tone.MembraneSynth({pitchDecay:.055,octaves:4,envelope:{attack:.001,decay:.24,sustain:0,release:.1}}).connect(rvb);k.triggerAttackRelease('D1',.28,t,.72);setTimeout(()=>k.dispose(),800);noise('brown',.05,.42,220,sv,t);noise('white',.032,.16,1100,sv,t+.01); }
-  function draw(){ if(muted)return;const t=now();noise('white',.075,.18,1700,rvb,t);noise('pink',.052,.11,660,sv,t+.01);blip('A5','sine',.05,.04,rvb,t+.006); }
-  function sel(){ if(muted)return;const t=now();blip('C6','triangle',.09,.11,rvb,t);metal(1750,.04,.15,t+.006); }
-  // ── Special card SFX ──
-  function spySfx(){ if(muted)return;const t=now();// sneaky descending whistle
-    blip('G5','sine',.12,.13,rvb,t);blip('E5','sine',.1,.1,rvb,t+.1);blip('C5','sine',.14,.09,rvb,t+.19);noise('white',.06,.08,3200,sv,t+.28); }
-  function decoysfx(){ if(muted)return;const t=now();// poof / illusion
-    noise('pink',.18,.35,900,rvbB,t);blip('C6','triangle',.06,.12,rvb,t+.04);blip('G5','triangle',.06,.08,rvb,t+.1);blip('C7','triangle',.05,.06,rvb,t+.16); }
-  function tightBondSfx(){ if(muted)return;const t=now();// satisfying double-thunk
-    const k=new Tone.MembraneSynth({pitchDecay:.04,octaves:3,envelope:{attack:.001,decay:.14,sustain:0,release:.06}}).connect(sv);k.triggerAttackRelease('G2',.1,t,.65);setTimeout(()=>k.dispose(),600);const k2=new Tone.MembraneSynth({pitchDecay:.04,octaves:3,envelope:{attack:.001,decay:.14,sustain:0,release:.06}}).connect(sv);k2.triggerAttackRelease('G2',.1,t+.09,.5);setTimeout(()=>k2.dispose(),700);blip('D5','triangle',.1,.1,rvb,t+.18); }
-  function musterSfx(){ if(muted)return;const t=now();// marching drumroll swell
-    for(let i=0;i<5;i++){const k=new Tone.MembraneSynth({pitchDecay:.03,octaves:2,envelope:{attack:.001,decay:.09,sustain:0,release:.04}}).connect(sv);k.triggerAttackRelease('C2','16n',t+i*.06,.3+i*.1);setTimeout(()=>k.dispose(),800);}
-    blip('C4','sawtooth',.3,.14,rvbB,t+.32);blip('G4','sawtooth',.28,.12,rvbB,t+.46); }
-  function moraleSfx(){ if(muted)return;const t=now();// uplifting horn stab
-    blip('C4','sawtooth',.22,.16,rvbB,t);blip('E4','sawtooth',.2,.14,rvbB,t+.06);blip('G4','sawtooth',.3,.18,rvbB,t+.12);metal(900,.12,.18,t+.32); }
-  function scorch(){ if(muted)return;const t=now();noise('brown',.65,.6,270,rvbB,t);noise('white',.45,.4,840,rvbB,t+.04);const boom=new Tone.MembraneSynth({pitchDecay:.1,octaves:5,envelope:{attack:.001,decay:.38,sustain:0,release:.16}}).connect(rvbB);boom.triggerAttackRelease('A0',.46,t,.85);setTimeout(()=>boom.dispose(),1800);for(let i=0;i<4;i++)metal(800+Math.random()*1100,.04+Math.random()*.055,.12+Math.random()*.17,t+.08+Math.random()*.3); }
-  function weatherSfx(){ if(muted)return;const t=now();noise('white',.55,.33,390,rvbB,t);blip('F1','sine',.5,.16,rvbB,t); }
-  function hornSfx(){ if(muted)return;const t=now();['C3','G3','C4','E4'].forEach((n,i)=>{blip(n,'sawtooth',.48,.18-i*.03,rvbB,t+i*.02);blip(n,'square',.36,.07,rvb,t+i*.02);}); }
-  function medicSfx(){ if(muted)return;const t=now();['C5','E5','G5','C6'].forEach((n,i)=>{blip(n,'sine',.4,.11-i*.014,rvbB,t+i*.085);metal(Tone.Frequency(n).toFrequency()*2,.25,.09,t+i*.085+.013);}); }
-  function heroSfx(faction){ if(muted)return;const t=now();const notes=faction==='nilfgaard'?['D3','F3','Ab3','D4','F4']:['C3','C4','E4','G4','C5'];const boom=new Tone.MembraneSynth({pitchDecay:.09,octaves:5,envelope:{attack:.001,decay:.4,sustain:0,release:.16}}).connect(rvbB);boom.triggerAttackRelease('C1',.46,t,.85);setTimeout(()=>boom.dispose(),1700);notes.forEach((n,i)=>{blip(n,'sawtooth',.28,.17-i*.02,rvbB,t+.04+i*.06);blip(n,'triangle',.24,.07,rvb,t+.04+i*.06);}); }
-  function playCard(card){
-    if(muted)return;
-    if(card.subtype==='hero'){heroSfx(card.faction);return;}
-    if(card.type==='weather'||card.subtype==='clear'){weatherSfx();return;}
-    if(card.subtype==='scorch'){scorch();return;}
-    if(card.subtype==='horn'){hornSfx();return;}
-    if(card.subtype==='spy'){spySfx();return;}
-    if(card.subtype==='decoy'){decoysfx();return;}
-    if(card.ability==='medic'){medicSfx();return;}
-    if(card.ability==='tight_bond'){tightBondSfx();return;}
-    if(card.ability==='muster'){musterSfx();return;}
-    if(card.ability==='morale_boost'){moraleSfx();return;}
-    drop();const t=now();blip(card.faction==='nilfgaard'?'Ab2':'G2','triangle',.15,.1,rvb,t+.035);
-  }
-  function pass(){ if(muted)return;const t=now();blip('Eb3','triangle',.3,.16,rvb,t);blip('C3','triangle',.4,.13,rvb,t+.24); }
-  function roundWin(){ if(muted)return;const t=now();['G4','B4','D5','G5'].forEach((n,i)=>blip(n,'triangle',.36,.14,rvbB,t+i*.09));metal(1100,.42,.35,t+.42); }
-  function roundLoss(){ if(muted)return;const t=now();['G3','Eb3','C3'].forEach((n,i)=>blip(n,'triangle',.46,.15,rvbB,t+i*.16)); }
-  function victory(){ if(muted)return;const t=now();for(let i=0;i<3;i++){const d=new Tone.MembraneSynth({pitchDecay:.08,octaves:4,envelope:{attack:.001,decay:.4,sustain:0,release:.16}}).connect(rvbB);d.triggerAttackRelease('C1',.45,t+i*.35,.65);setTimeout(()=>d.dispose(),3500);}['C3','G3','C4','E4','G4','C5'].forEach((n,i)=>blip(n,'sawtooth',.9-i*.08,.19-i*.02,rvbB,t+.42+i*.15)); }
-  function defeat(){ if(muted)return;const t=now();noise('white',.02,.78,2800,sv,t);noise('brown',.1,.55,380,rvbB,t+.01);blip('C2','sine',2.1,.22,rvbB,t+.42);blip('G1','sine',1.7,.14,rvbB,t+.72); }
-  function gravOpen(){ if(muted)return;const t=now();const k=new Tone.MembraneSynth({pitchDecay:.04,octaves:2.2,envelope:{attack:.001,decay:.14,sustain:0,release:.06}}).connect(rvbB);k.triggerAttackRelease('A2','8n',t,.6);setTimeout(()=>k.dispose(),700);noise('brown',.38,.36,300,rvbB,t+.04); }
-  function gravClose(){ if(muted)return;const t=now();const s=new Tone.MembraneSynth({pitchDecay:.05,octaves:3.6,envelope:{attack:.001,decay:.36,sustain:0,release:.17}}).connect(rvbB);s.triggerAttackRelease('C1',.4,t,.82);setTimeout(()=>s.dispose(),1500);metal(170,.4,.48,t+.02); }
-  function redrawSfx(){ if(muted)return;const t=now();for(let i=0;i<3;i++){noise('white',.07,.17,1500,rvb,t+i*.08);noise('pink',.045,.11,560,sv,t+i*.08+.016);}blip('D5','triangle',.08,.06,rvb,t+.24); }
-  function setMute(v){ muted=v;mv.mute=v; }
-  function isMuted(){ return muted; }
-  async function start(){ await boot(); }
-  return { start, setMute, isMuted, hover, grab, drop, draw, sel, playCard, scorch, pass, roundWin, roundLoss, victory, defeat, gravOpen, gravClose, redrawSfx };
-})();
+const Snd = new Proxy({}, { get: () => () => {} });
 
+// ── WebGL card renderer ────────────────────────────────────────
+function initCardGL(canvas, card, staticGL) {
+  const gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: false });
+  if (!gl) return;
+  const W = canvas.width, H = canvas.height;
+  const vs = `attribute vec2 a;varying vec2 v;void main(){v=a*.5+.5;gl_Position=vec4(a,0,1);}`;
+  const rowColors = { close:[.75,.22,.17,1], ranged:[.15,.44,.68,1], siege:[.15,.68,.38,1], hero:[.79,.66,.3,1], agile:[.65,.3,.65,1], special:[.79,.66,.3,1], weather:[.15,.55,.9,1] };
+  const rc = rowColors[card.subtype==='hero'?'hero':card.subtype==='agile'?'agile':card.type==='weather'?'weather':['scorch','horn','decoy','clear'].includes(card.subtype)?'special':(card.row||'close')] || [.5,.5,.5,1];
+  const isH = card.subtype==='hero' ? 1 : 0;
+  const isSpc = (card.type==='weather'||['scorch','horn','decoy','clear'].includes(card.subtype)) ? 1 : 0;
+  const fac = card.faction==='nilfgaard' ? 1 : 0;
+  const fs = `precision mediump float;varying vec2 v;uniform float u_t;uniform vec4 u_rc;uniform float u_h,u_f,u_s;
+    float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+    float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}
+    void main(){
+      vec2 uv=v;
+      float br=sin(u_t*1.35+uv.y*2.6)*.04+sin(u_t*.68+uv.x*3.1)*.028;
+      float n1=noise(uv*4.+u_t*.05+br);
+      vec3 c=mix(vec3(.08,.07,.04),vec3(.12,.1,.06),n1*.6+br*.25);
+      if(u_f>.5)c=mix(c,vec3(.06,.04,.1),.35);
+      if(u_h>.5){float a=uv.x*6.28+u_t*.4;float sh=pow(max(0.,sin(a)*.5+.5),3.)*.2;c=mix(c,vec3(.32,.26,.1),sh+smoothstep(0.,.5,uv.x+uv.y-u_t*.1)*.12);}
+      if(u_s>.5){float hl=sin(uv.x*10.+u_t*2.)*.5+.5;float hl2=sin(uv.y*7.5-u_t*1.4)*.5+.5;c=mix(c,mix(vec3(.15,.5,.95),vec3(.95,.42,.18),hl)*hl2,hl*hl2*.15+br*.04);}
+      float bar=step(1.-3./float(${H}),uv.y);c=mix(c,u_rc.rgb,bar*.9);
+      float btm=step(uv.y,20./float(${H}));c=mix(c,vec3(0),btm*.88);
+      float bx=min(uv.x,1.-uv.x)*float(${W});float by=min(uv.y,1.-uv.y)*float(${H});float bord=1.-smoothstep(0.,4.,min(bx,by));
+      c=mix(c,u_h>.5?vec3(.79,.66,.3):u_s>.5?vec3(.4,.75,.95):u_rc.rgb,bord*.5);
+      float gr=hash(uv*float(${W})+u_t*100.);c+=gr*.024-.012;
+      float vig=(uv.x-.5)*(uv.x-.5)+(uv.y-.5)*(uv.y-.5);c*=1.-vig*.6;
+      gl_FragColor=vec4(c,1.);}`;
+  function mkS(type, src) { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; }
+  const prog = gl.createProgram();
+  gl.attachShader(prog, mkS(gl.VERTEX_SHADER, vs));
+  gl.attachShader(prog, mkS(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(prog); gl.useProgram(prog);
+  const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, 'a'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  const uT = gl.getUniformLocation(prog, 'u_t');
+  gl.uniform4fv(gl.getUniformLocation(prog, 'u_rc'), rc);
+  gl.uniform1f(gl.getUniformLocation(prog, 'u_h'), isH);
+  gl.uniform1f(gl.getUniformLocation(prog, 'u_f'), fac);
+  gl.uniform1f(gl.getUniformLocation(prog, 'u_s'), isSpc);
+  let raf = null, t0 = performance.now();
+  function render(ts) { gl.uniform1f(uT, (performance.now()-t0)/1000); gl.viewport(0,0,W,H); gl.clear(gl.COLOR_BUFFER_BIT); gl.drawArrays(gl.TRIANGLE_STRIP,0,4); raf = requestAnimationFrame(render); }
+  if (staticGL) {
+    // Single static paint for board cards — no ongoing RAF
+    gl.uniform1f(uT, 0); gl.viewport(0,0,W,H); gl.clear(gl.COLOR_BUFFER_BIT); gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+    canvas._stop = () => {};
+  } else {
+    render();
+    canvas._stop = () => { if (raf) cancelAnimationFrame(raf); };
+  }
+}
 
 function makeCardEl(card, isBig, opts = {}) {
   const el = document.createElement('div');
@@ -534,13 +519,12 @@ function makeCardEl(card, isBig, opts = {}) {
   if (card.subtype === 'hero') el.classList.add('hero-card');
   if (card.type === 'weather') el.classList.add('weather-c');
   if (['scorch','horn','decoy','clear'].includes(card.subtype)) el.classList.add('special-c');
-  // CSS background replaces WebGL canvas — same colors, zero GPU cost
-  const rowColors = { close:'#3d1a17', ranged:'#0e2a3d', siege:'#0e3d26', hero:'#3d300a', agile:'#2e1a2e', special:'#3d300a', weather:'#0a2a40' };
-  const bgKey = card.subtype==='hero'?'hero':card.subtype==='agile'?'agile':card.type==='weather'?'weather':['scorch','horn','decoy','clear'].includes(card.subtype)?'special':(card.row||'close');
-  const bg = document.createElement('div');
-  bg.className = 'card-canvas';
-  bg.style.background = `linear-gradient(160deg,#1a160e 60%,${rowColors[bgKey]||'#222'})`;
-  el.appendChild(bg);
+  const W = isBig ? 66 : 54, H = isBig ? 92 : 76;
+  const cvs = document.createElement('canvas');
+  cvs.className = 'card-canvas'; cvs.width = W; cvs.height = H;
+  el.appendChild(cvs);
+  // Board cards: single static render (no RAF loop). Hand cards: animated.
+  setTimeout(() => initCardGL(cvs, card, !!opts.staticGL), 0);
   const face = document.createElement('div'); face.className = 'card-face';
   const tb = document.createElement('div');
   const bc = card.subtype==='hero'?'hero':card.subtype==='agile'?'agile':card.type==='weather'?'special':['scorch','horn','decoy','clear'].includes(card.subtype)?'special':(card.row||'close');
@@ -560,7 +544,7 @@ function makeCardEl(card, isBig, opts = {}) {
   fr.appendChild(dot); fr.appendChild(rt); bot.appendChild(fr);
   if (card.ability) { const at = document.createElement('div'); at.className = 'card-ability-tag'; at.textContent = card.ability.replace(/_/g,' '); bot.appendChild(at); }
   face.appendChild(bot); el.appendChild(face);
-  el.addEventListener('mouseenter', e => { if (!dragState.card) { Snd.hover(); showTT(card, e); } });
+  el.addEventListener('mouseenter', e => { if (!dragState.card) { showTT(card, e); } });
   el.addEventListener('mouseleave', hideTT);
   return el;
 }
@@ -577,7 +561,8 @@ function renderBoardRow(containerId, cards, isMyBoard, state) {
   if (_boardCache[containerId] === sig) return; // nothing changed, skip rebuild
   _boardCache[containerId] = sig;
   // Stop existing WebGL loops on static board cards before wiping
-    container.innerHTML = '';
+  container.querySelectorAll('canvas').forEach(c => c._stop && c._stop());
+  container.innerHTML = '';
   cards.forEach(card => {
     const el = makeCardEl(card, false, { staticGL: true });
     el.id = 'bc-' + card.uid;
@@ -685,7 +670,8 @@ function renderHand(state) {
   if (_handSig !== sig) {
     _handSig = sig;
     // Stop any existing WebGL loops
-        container.innerHTML = '';
+    container.querySelectorAll('canvas').forEach(c => c._stop && c._stop());
+    container.innerHTML = '';
     (state.myHand || []).forEach(card => {
       const el = makeCardEl(card, true);
       if (myTurn && !state.myPassed && state.phase === 'playing') {
@@ -694,9 +680,9 @@ function renderHand(state) {
         el.addEventListener('click', () => {
           if (awaitDecoy) return;
           if (dragState.card) return;
-          if (card.type === 'weather') { Snd.playCard(card); socket.emit('play_card', { cardUid: card.uid, targetRow: null }); return; }
-          if (card.subtype === 'clear') { Snd.playCard(card); socket.emit('play_card', { cardUid: card.uid, targetRow: null }); return; }
-          if (card.subtype === 'scorch') { Snd.playCard(card); socket.emit('play_card', { cardUid: card.uid, targetRow: null }); return; }
+          if (card.type === 'weather') { socket.emit('play_card', { cardUid: card.uid, targetRow: null }); return; }
+          if (card.subtype === 'clear') { socket.emit('play_card', { cardUid: card.uid, targetRow: null }); return; }
+          if (card.subtype === 'scorch') { socket.emit('play_card', { cardUid: card.uid, targetRow: null }); return; }
         });
       }
       container.appendChild(el);
@@ -725,7 +711,6 @@ const ghost = document.getElementById('drag-ghost');
 
 function startDrag(card, el, e) {
   dragState = { card, el };
-  Snd.grab();
   ghost.innerHTML = '';
   const clone = makeCardEl(card, true);
   clone.style.width = '66px'; clone.style.height = '92px';
@@ -770,7 +755,6 @@ function endDrag(x, y) {
     const card = dragState.card;
     dragState = {};
     if (isValidDrop(card, side, row)) {
-      Snd.drop();
       // Handle decoy special: targetRow = row for horn/normal; for decoy we need to wait for board click
       if (card.subtype === 'decoy') {
         // Signal waiting for board pick
@@ -824,7 +808,6 @@ function setupSpyClick(card) {
 
 // ── Graveyard / Medic ────────────────────────────────────────
 function openGraveyard(side) {
-  Snd.gravOpen();
   const gy = side === 'my' ? (GS?.myGY||[]) : (GS?.oppGY||[]);
   const modal = document.getElementById('grav-modal');
   document.getElementById('grav-title').textContent = `⚰ ${side === 'my' ? 'YOUR' : 'OPPONENT'} GRAVEYARD`;
@@ -843,7 +826,7 @@ function openMedicPicker(gy) {
   eligible.forEach(card => {
     const item = document.createElement('div'); item.className = 'grav-card-item selectable';
     item.innerHTML = `<div class="gc-art">${card.emoji||'🃏'}</div><div class="gc-pwr">${card.power||''}</div><div class="gc-name">${card.name}</div>`;
-    item.addEventListener('click', () => { modal.classList.remove('show'); Snd.gravClose(); socket.emit('medic_pick', { cardUid: card.uid }); Snd.playCard(card); });
+    item.addEventListener('click', () => { modal.classList.remove('show'); socket.emit('medic_pick', { cardUid: card.uid }); });
     container.appendChild(item);
   });
   modal.classList.add('show');
@@ -863,13 +846,11 @@ function openRedrawModal() {
     item.addEventListener('click', () => {
       if (selected.has(card.uid)) { selected.delete(card.uid); item.classList.remove('sel'); }
       else if (selected.size < 3) { selected.add(card.uid); item.classList.add('sel'); }
-      Snd.sel();
-    });
+      });
     container.appendChild(item);
   });
   document.getElementById('redraw-confirm').onclick = () => {
     if (!selected.size) return;
-    Snd.redrawSfx();
     socket.emit('redraw_cards', { uids: Array.from(selected) });
     modal.classList.remove('show');
   };
@@ -939,8 +920,7 @@ socket.on('game_start', ({ yourFaction, opponentFaction, youGoFirst }) => {
   document.getElementById('lobby').classList.add('hidden');
   document.getElementById('game').style.display = 'flex';
   document.getElementById('game').style.flexDirection = 'column';
-  Snd.start();
-  for (let i = 0; i < 4; i++) setTimeout(() => Snd.draw(), 180 + i * 70);
+  for (let i = 0; i < 4; i++) setTimeout(() => , 180 + i * 70);
   addLog(`Game started! You are ${yourFaction === 'northern' ? 'Northern Realms' : 'Nilfgaard'}. ${youGoFirst ? 'You go first!' : 'Opponent goes first.'}`, true);
   moveLog.push({ msg: `Game started. You: ${yourFaction}`, round: 1, imp: true });
 });
@@ -967,9 +947,9 @@ socket.on('round_result', ({ winner, p1s, p2s, gameOver }) => {
   const scores= document.getElementById('rr-scores');
   const btn   = document.getElementById('rr-btn');
 
-  if (iWon) { title.textContent = '⚔ ROUND WON!'; title.style.color='var(--green-l)'; desc.textContent='You outplayed your opponent!'; setTimeout(() => Snd.roundWin(), 200); }
+  if (iWon) { title.textContent = '⚔ ROUND WON!'; title.style.color='var(--green-l)'; desc.textContent='You outplayed your opponent!'; setTimeout(() => , 200); }
   else if (isDraw) { title.textContent = '⚖ DRAW!'; title.style.color='var(--gold-l)'; desc.textContent='An even contest.'; }
-  else { title.textContent = '💀 ROUND LOST'; title.style.color='var(--red-l)'; desc.textContent='Your opponent prevailed.'; setTimeout(() => Snd.roundLoss(), 200); }
+  else { title.textContent = '💀 ROUND LOST'; title.style.color='var(--red-l)'; desc.textContent='Your opponent prevailed.'; setTimeout(() => , 200); }
 
   scores.innerHTML = `<div class="rr-score-chip">YOUR SCORE: ${myScore}</div><div class="rr-score-chip">OPP SCORE: ${oppScore}</div>`;
 
@@ -978,8 +958,8 @@ socket.on('round_result', ({ winner, p1s, p2s, gameOver }) => {
     btn.onclick = () => {
       document.getElementById('rr-modal').classList.remove('show');
       const myRW = GS?.myRW || 0, oppRW = GS?.oppRW || 0;
-      if (myRW > oppRW) { Snd.victory(); addLog('⚔ VICTORY! You won the match!', true); }
-      else if (oppRW > myRW) { Snd.defeat(); addLog('💀 Defeated. Better luck next time.', true); }
+      if (myRW > oppRW) { addLog('⚔ VICTORY! You won the match!', true); }
+      else if (oppRW > myRW) { addLog('💀 Defeated. Better luck next time.', true); }
       else { addLog('⚖ Match drawn!', true); }
       // Show play again after a moment
       setTimeout(() => {
@@ -1046,20 +1026,18 @@ document.getElementById('join-code-input').addEventListener('keydown', e => { if
 // ── Game Controls ─────────────────────────────────────────────
 document.getElementById('pass-btn').addEventListener('click', () => {
   if (!myTurn || !GS || GS.myPassed || GS.phase !== 'playing') return;
-  Snd.pass();
   socket.emit('pass_round');
 });
 
 document.getElementById('redraw-btn').addEventListener('click', openRedrawModal);
 
 document.getElementById('mute-btn').addEventListener('click', () => {
-  const m = !Snd.isMuted(); Snd.setMute(m);
-  document.getElementById('mute-btn').textContent = m ? '🔇' : '🔊';
+  const m = !document.getElementById('mute-btn').textContent = m ? '🔇' : '🔊';
 });
 
-document.getElementById('hist-btn').addEventListener('click', () => { Snd.gravOpen(); openHistoryModal(); });
-document.getElementById('hist-close').addEventListener('click', () => { Snd.gravClose(); document.getElementById('hist-modal').classList.remove('show'); });
-document.getElementById('grav-close').addEventListener('click', () => { Snd.gravClose(); document.getElementById('grav-modal').classList.remove('show'); });
+document.getElementById('hist-btn').addEventListener('click', () => { openHistoryModal(); });
+document.getElementById('hist-close').addEventListener('click', () => { document.getElementById('hist-modal').classList.remove('show'); });
+document.getElementById('grav-close').addEventListener('click', () => { document.getElementById('grav-modal').classList.remove('show'); });
 
 document.getElementById('log-toggle').addEventListener('click', () => {
   const w = document.getElementById('log-wrap');
