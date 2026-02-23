@@ -471,7 +471,14 @@ const Snd = (() => {
   function blip(f,t,d,v,dest,time){ const s=new Tone.Synth({oscillator:{type:t},envelope:{attack:.008,decay:d*.4,sustain:.1,release:d*.6}}).connect(dest||sv);s.triggerAttackRelease(f,d,time||now(),v);setTimeout(()=>s.dispose(),(d+1)*1000); }
   function metal(f,d,v,time){ const s=new Tone.MetalSynth({frequency:f,envelope:{attack:.001,decay:d,release:.1},harmonicity:5.1,modulationIndex:32,resonance:4000,octaves:1.5}).connect(sv);s.triggerAttackRelease(f,d,time||now(),v);setTimeout(()=>s.dispose(),(d+1.5)*1000); }
   function noise(t,d,v,ff,dest,time){ const env=new Tone.AmplitudeEnvelope({attack:.003,decay:d*.7,sustain:0,release:d*.3}).connect(dest||sv);const filt=new Tone.Filter(ff,'bandpass').connect(env);const n=new Tone.Noise(t).connect(filt);const tm=time||now();env.triggerAttack(tm);env.triggerRelease(tm+d*.6);n.start(tm);n.stop(tm+d+.1);setTimeout(()=>{n.dispose();filt.dispose();env.dispose();},(d+1)*1000); }
-  function hover(){ if(muted)return;const t=now();const qg=new Tone.Volume(-34).connect(sv);const env=new Tone.AmplitudeEnvelope({attack:.003,decay:.035,sustain:0,release:.012}).connect(qg);const bp=new Tone.Filter({type:'bandpass',frequency:2800,Q:11}).connect(env);const n=new Tone.Noise('white').connect(bp);n.start(t);env.triggerAttack(t);env.triggerRelease(t+.025);setTimeout(()=>{try{n.stop();n.dispose();bp.dispose();env.dispose();qg.dispose();}catch(e){}},250); }
+  // Pre-built hover nodes — created once, reused forever (no per-hover allocation)
+  const _hqg=new Tone.Volume(-34).connect(sv);
+  const _henv=new Tone.AmplitudeEnvelope({attack:.003,decay:.035,sustain:0,release:.012}).connect(_hqg);
+  const _hbp=new Tone.Filter({type:'bandpass',frequency:2800,Q:11}).connect(_henv);
+  const _hn=new Tone.Noise('white').connect(_hbp);
+  _hn.start(); // keep running silently; envelope gates the sound
+  let _hBusy=false;
+  function hover(){ if(muted||_hBusy)return;_hBusy=true;const t=now();_henv.triggerAttack(t);_henv.triggerRelease(t+.025);setTimeout(()=>{_hBusy=false;},60); }
   function grab(){ if(muted)return;const t=now();noise('brown',.09,.24,370,sv,t);noise('white',.032,.13,2300,sv,t+.01);const k=new Tone.MembraneSynth({pitchDecay:.028,octaves:2.3,envelope:{attack:.001,decay:.075,sustain:0,release:.032}}).connect(sv);k.triggerAttackRelease('G2',.08,t,.4);setTimeout(()=>k.dispose(),500); }
   function drop(){ if(muted)return;const t=now();const k=new Tone.MembraneSynth({pitchDecay:.055,octaves:4,envelope:{attack:.001,decay:.24,sustain:0,release:.1}}).connect(rvb);k.triggerAttackRelease('D1',.28,t,.72);setTimeout(()=>k.dispose(),800);noise('brown',.05,.42,220,sv,t);noise('white',.032,.16,1100,sv,t+.01); }
   function draw(){ if(muted)return;const t=now();noise('white',.075,.18,1700,rvb,t);noise('pink',.052,.11,660,sv,t+.01);blip('A5','sine',.05,.04,rvb,t+.006); }
