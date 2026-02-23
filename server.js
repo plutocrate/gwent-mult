@@ -116,10 +116,10 @@ function newGameState(p1id, p2id) {
   const f1 = factions[0], f2 = factions[1];
   const d1 = buildDeck(f1);
   const d2 = buildDeck(f2);
-  // Draw 22 from each deck (pop mutates d1/d2 so remaining cards = draw pile)
+  // Draw 10 starting cards each; remaining deck stays as draw pile
   const h1 = [], h2 = [];
-  for (let i = 0; i < 22 && d1.length; i++) h1.push(d1.pop());
-  for (let i = 0; i < 22 && d2.length; i++) h2.push(d2.pop());
+  for (let i = 0; i < 10 && d1.length; i++) h1.push(d1.pop());
+  for (let i = 0; i < 10 && d2.length; i++) h2.push(d2.pop());
 
   return {
     round: 1,
