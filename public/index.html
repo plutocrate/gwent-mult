@@ -448,7 +448,31 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 <script>
 'use strict';
 // ── Socket ───────────────────────────────────────────────────
-const socket = io({ transports: ['websocket'], upgrade: false });
+const socket = io({
+  transports: ['polling', 'websocket'],  // polling first so Railway's proxy can handshake, then upgrades
+  upgrade: true,
+  reconnection: true,
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000,
+  timeout: 10000,
+});
+
+// ── Connection diagnostics ────────────────────────────────────
+socket.on('connect', () => {
+  const el = document.getElementById('lob-status');
+  if (el && el.textContent === 'Connecting…') el.textContent = '';
+});
+
+socket.on('connect_error', (err) => {
+  const el = document.getElementById('lob-status');
+  if (el) { el.textContent = 'Connection error — retrying…'; el.style.color = 'var(--red-l)'; }
+  console.warn('[socket] connect_error:', err.message);
+});
+
+socket.on('disconnect', (reason) => {
+  console.warn('[socket] disconnected:', reason);
+  if (reason === 'io server disconnect') socket.connect(); // server kicked us, try to reconnect
+});
 
 // ── Client state ─────────────────────────────────────────────
 let GS = null;          // last server state snapshot
@@ -970,6 +994,8 @@ function burnCard(el, cb) { if (!el) { cb && cb(); return; } el.classList.add('b
 
 // ── Socket events ─────────────────────────────────────────────
 socket.on('room_created', ({ code }) => {
+  clearTimeout(socket._createRoomTimeout);
+  document.getElementById('btn-create').disabled = false;
   document.getElementById('lob-main').style.display = 'none';
   document.getElementById('lob-join-row').style.display = 'none';
   document.getElementById('lob-waiting').style.display = 'block';
@@ -978,6 +1004,8 @@ socket.on('room_created', ({ code }) => {
 });
 
 socket.on('err', (msg) => {
+  clearTimeout(socket._createRoomTimeout);
+  document.getElementById('btn-create').disabled = false;
   document.getElementById('lob-status').textContent = msg;
   document.getElementById('lob-status').style.color = 'var(--red-l)';
 });
@@ -1070,9 +1098,23 @@ socket.on('opponent_left', () => {
 
 // ── Lobby Events ──────────────────────────────────────────────
 document.getElementById('btn-create').addEventListener('click', () => {
+  if (!socket.connected) {
+    document.getElementById('lob-status').textContent = 'Not connected — please wait…';
+    document.getElementById('lob-status').style.color = 'var(--red-l)';
+    return;
+  }
+  document.getElementById('btn-create').disabled = true;
   socket.emit('create_room');
   document.getElementById('lob-status').textContent = 'Creating room…';
   document.getElementById('lob-status').style.color = 'var(--dim)';
+
+  // Safety timeout: if room_created doesn't fire in 6s, re-enable
+  const timeout = setTimeout(() => {
+    document.getElementById('btn-create').disabled = false;
+    document.getElementById('lob-status').textContent = 'Server not responding — try again.';
+    document.getElementById('lob-status').style.color = 'var(--red-l)';
+  }, 6000);
+  socket._createRoomTimeout = timeout;
 });
 
 document.getElementById('btn-join-show').addEventListener('click', () => {
