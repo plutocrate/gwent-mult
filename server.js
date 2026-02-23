@@ -3,6 +3,7 @@ const express = require('express');
 const http    = require('http');
 const { Server } = require('socket.io');
 const path    = require('path');
+const Redis   = require('ioredis');
 
 const app    = express();
 const server = http.createServer(app);
@@ -19,17 +20,112 @@ app.use(express.static(PUBLIC));
 app.get('/health', (_, res) => res.send('ok'));
 app.get('*', (_, res) => res.sendFile(path.join(PUBLIC, 'index.html')));
 
+// ── Redis setup ────────────────────────────────────────────────
+// Railway auto-injects REDIS_URL when you add a Redis plugin to your project.
+// Without it, the game still works — Redis helpers fall back to in-memory stubs.
+let redis = null;
+if (process.env.REDIS_URL) {
+  redis = new Redis(process.env.REDIS_URL, {
+    maxRetriesPerRequest: 2,
+    enableReadyCheck: false,
+    lazyConnect: true,
+  });
+  redis.on('error', err => console.warn('[redis] error:', err.message));
+  redis.connect().then(() => console.log('[redis] connected')).catch(() => {});
+} else {
+  console.log('[redis] REDIS_URL not set — running in-memory only');
+}
+
+// ── Redis key helpers ──────────────────────────────────────────
+const CARD_DEFS_KEY = 'gwent:card_defs';             // String (JSON) — static card catalogue
+const logKey        = c => `gwent:log:${c}`;         // List  — append-only game log per room
+const readyKey      = c => `gwent:ready:${c}`;       // Set   — next-round readiness per room
+const ROOM_TTL_S    = 3600;                           // Redis keys expire after 1 h
+
+// ── Card-def cache ─────────────────────────────────────────────
+// CARD_DEFS is purely static. Caching it in Redis means process restarts don't
+// need to recompute anything, and it's easy to inspect from the Redis CLI.
+async function warmCardDefsCache(defs) {
+  if (!redis) return;
+  try {
+    const exists = await redis.exists(CARD_DEFS_KEY);
+    if (!exists) {
+      await redis.set(CARD_DEFS_KEY, JSON.stringify(defs));
+      console.log('[redis] card defs cached (' + defs.length + ' cards)');
+    }
+  } catch (e) { console.warn('[redis] warmCardDefsCache:', e.message); }
+}
+
+// ── Game-log helpers (Redis List) ─────────────────────────────
+// Moving gs.log out of the hot in-memory state trims every broadcastState()
+// payload build. Only the last SEND_LOG entries are ever sent to clients.
+const MAX_LOG  = 150;
+const SEND_LOG = 12;
+
+async function appendLog(code, gs, entry) {
+  if (redis) {
+    try {
+      const key = logKey(code);
+      const pipe = redis.pipeline();
+      pipe.rpush(key, JSON.stringify(entry));
+      pipe.ltrim(key, -MAX_LOG, -1);
+      pipe.expire(key, ROOM_TTL_S);
+      await pipe.exec();
+      return;
+    } catch (e) { console.warn('[redis] appendLog:', e.message); }
+  }
+  // In-memory fallback (no Redis)
+  gs._log = gs._log || [];
+  gs._log.push(entry);
+  if (gs._log.length > MAX_LOG) gs._log.shift();
+}
+
+async function getRecentLog(code, gs) {
+  if (redis) {
+    try {
+      const raw = await redis.lrange(logKey(code), -SEND_LOG, -1);
+      return raw.map(s => JSON.parse(s));
+    } catch (e) { console.warn('[redis] getRecentLog:', e.message); }
+  }
+  return (gs._log || []).slice(-SEND_LOG);
+}
+
+async function deleteLog(code) {
+  if (!redis) return;
+  try { await redis.del(logKey(code)); } catch (e) {}
+}
+
+// ── Next-round readiness (Redis Set) ──────────────────────────
+// Replaces the in-memory nextRoundReady object. Using Redis means readiness
+// state survives if a future multi-instance deploy is ever needed.
+const _readyFallback = {};
+
+async function markReady(code, sid) {
+  if (redis) {
+    try {
+      const key = readyKey(code);
+      const pipe = redis.pipeline();
+      pipe.sadd(key, sid);
+      pipe.expire(key, ROOM_TTL_S);
+      const results = await pipe.exec();
+      // scard separately after pipeline
+      return await redis.scard(key);
+    } catch (e) { console.warn('[redis] markReady:', e.message); }
+  }
+  if (!_readyFallback[code]) _readyFallback[code] = new Set();
+  _readyFallback[code].add(sid);
+  return _readyFallback[code].size;
+}
+
+async function clearReady(code) {
+  if (redis) {
+    try { await redis.del(readyKey(code)); return; } catch (e) {}
+  }
+  delete _readyFallback[code];
+}
+
 // ── Room registry ──────────────────────────────────────────────
 const rooms = {};
-// nextRoundReady lives outside connection scope so it persists across events
-const nextRoundReady = {};
-
-function makeCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let c = '';
-  for (let i = 0; i < 4; i++) c += chars[Math.floor(Math.random() * chars.length)];
-  return c;
-}
 function uniqueCode() {
   let c, tries = 0;
   do { c = makeCode(); tries++; } while (rooms[c] && tries < 100);
@@ -84,6 +180,8 @@ const CARD_DEFS = [
 
 const CMAP = {};
 CARD_DEFS.forEach(c => { CMAP[c.id] = c; });
+// Warm card-def cache after Redis connects (fire-and-forget)
+setTimeout(() => warmCardDefsCache(CARD_DEFS), 1000);
 
 function uid() { return Math.random().toString(36).substr(2, 9); }
 
@@ -128,7 +226,8 @@ function newGameState(p1id, p2id) {
     weather: { close: false, ranged: false, siege: false },
     roundResult: null,
     awaitMedicSide: null,
-    log: [],
+    // log is stored in Redis (keyed by room code); _roomCode is set after creation
+    _roomCode: null,
     p1: { id: p1id, faction: f1, deck: d1, hand: h1, board:{close:[],ranged:[],siege:[]}, horn:{close:false,ranged:false,siege:false}, gy:[], passed:false, rw:0, redrawsLeft:2 },
     p2: { id: p2id, faction: f2, deck: d2, hand: h2, board:{close:[],ranged:[],siege:[]}, horn:{close:false,ranged:false,siege:false}, gy:[], passed:false, rw:0, redrawsLeft:2 },
   };
@@ -164,9 +263,10 @@ function totalScore(pData, weatherState) {
 }
 
 // ── State broadcast (server-authoritative, hide opp hand) ──────
-function broadcastState(room) {
+async function broadcastState(room) {
   const gs = room.state;
   if (!gs) return;
+  const recentLog = await getRecentLog(gs._roomCode, gs);
   ['p1','p2'].forEach(pk => {
     const me = gs[pk], opp = gs[pk==='p1'?'p2':'p1'];
     io.to(me.id).emit('state', {
@@ -186,7 +286,7 @@ function broadcastState(room) {
       myScore: totalScore(me, gs.weather),
       oppScore: totalScore(opp, gs.weather),
       awaitMedic: gs.awaitMedicSide === pk,
-      log: gs.log.slice(-12),
+      log: recentLog,
     });
   });
 }
@@ -196,9 +296,12 @@ function broadcastRoundResult(room) {
 }
 
 // ── Log helper ─────────────────────────────────────────────────
+// addLog is now async: log entries go to Redis (or in-memory fallback).
+// Callers that don't await it are fine — fire-and-forget is acceptable for logs.
 function addLog(gs, msg, important) {
-  gs.log.push({ msg, round: gs.round, important: !!important });
-  if (gs.log.length > 150) gs.log.shift();
+  const entry = { msg, round: gs.round, important: !!important };
+  const code = gs._roomCode;  // attached when room is created
+  appendLog(code, gs, entry); // async, fire-and-forget
 }
 
 // ── Game helpers ───────────────────────────────────────────────
@@ -438,6 +541,7 @@ io.on('connection', socket => {
 
     room.state = newGameState(room.p1, room.p2);
     const gs = room.state;
+    gs._roomCode = c; // used by addLog to key Redis entries
     console.log('[game start]', c);
 
     io.to(room.p1).emit('game_start', {
@@ -484,16 +588,15 @@ io.on('connection', socket => {
     }
   });
 
-  socket.on('ready_next_round', () => {
+  socket.on('ready_next_round', async () => {
     const code = socket.data.room;
     const room = rooms[code];
     if (!room?.state) return;
     const gs = room.state;
     if (!gs.roundResult || gs.roundResult.gameOver) return;
-    if (!nextRoundReady[code]) nextRoundReady[code] = new Set();
-    nextRoundReady[code].add(socket.id);
-    if (nextRoundReady[code].size >= 2) {
-      nextRoundReady[code].clear();
+    const count = await markReady(code, socket.id);
+    if (count >= 2) {
+      await clearReady(code);
       startNextRound(gs);
       broadcastState(room);
     }
@@ -559,7 +662,7 @@ io.on('connection', socket => {
     room.sockets.forEach(sid => {
       if (sid !== socket.id) io.to(sid).emit('opponent_left');
     });
-    setTimeout(() => { if (rooms[code]) { delete rooms[code]; delete nextRoundReady[code]; } }, 30000);
+    setTimeout(() => { if (rooms[code]) { delete rooms[code]; deleteLog(code); clearReady(code); } }, 30000);
   });
 });
 
@@ -568,7 +671,7 @@ setInterval(() => {
   Object.keys(rooms).forEach(code => {
     const r = rooms[code];
     const alive = (r.sockets || []).some(sid => io.sockets.sockets.get(sid));
-    if (!alive) { delete rooms[code]; delete nextRoundReady[code]; console.log('[cleaned]', code); }
+    if (!alive) { deleteLog(code); clearReady(code); delete rooms[code]; console.log('[cleaned]', code); }
   });
 }, 60000);
 
