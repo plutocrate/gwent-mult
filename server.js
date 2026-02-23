@@ -212,25 +212,26 @@ function drawCards(player, n) {
   for (let i = 0; i < n && player.deck.length; i++) player.hand.push(player.deck.pop());
 }
 
-function doScorch(gs) {
+function doScorch(gs, myKey) {
+  // When played from hand, scorch targets the highest-power non-hero unit(s)
+  // on the OPPONENT's board only (standard Gwent rules).
+  const oppKey = myKey === 'p1' ? 'p2' : 'p1';
   let maxP = 0;
   const targets = [];
   ['close','ranged','siege'].forEach(row => {
-    ['p1','p2'].forEach(pk => {
-      (gs[pk].board[row] || []).forEach(c => {
-        if (c.subtype !== 'hero' && c.type === 'unit') {
-          const p = effPwr(c, row, gs[pk].board[row], gs.weather);
-          targets.push({ c, pk, row, p });
-          if (p > maxP) maxP = p;
-        }
-      });
+    (gs[oppKey].board[row] || []).forEach(c => {
+      if (c.subtype !== 'hero' && c.type === 'unit') {
+        const p = effPwr(c, row, gs[oppKey].board[row], gs.weather);
+        targets.push({ c, row, p });
+        if (p > maxP) maxP = p;
+      }
     });
   });
-  if (maxP === 0) return 0;
+  if (maxP === 0) { addLog(gs, `🔥 Scorch! No valid targets.`, true); return 0; }
   let killed = 0;
-  targets.filter(t => t.p === maxP).forEach(({ c, pk, row }) => {
-    gs[pk].board[row] = gs[pk].board[row].filter(x => x.uid !== c.uid);
-    gs[pk].gy.push(c);
+  targets.filter(t => t.p === maxP).forEach(({ c, row }) => {
+    gs[oppKey].board[row] = gs[oppKey].board[row].filter(x => x.uid !== c.uid);
+    gs[oppKey].gy.push(c);
     killed++;
   });
   addLog(gs, `🔥 Scorch! ${killed} unit(s) with power ${maxP} burned!`, true);
@@ -292,7 +293,7 @@ function processPlay(gs, sid, action) {
   // ── Scorch
   if (card.subtype === 'scorch') {
     removeCard();
-    doScorch(gs);
+    doScorch(gs, myKey);
     advanceTurn(gs); return true;
   }
 

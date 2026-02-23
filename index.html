@@ -687,6 +687,7 @@ function renderHand(state) {
           if (card.type === 'weather') { socket.emit('play_card', { cardUid: card.uid, targetRow: null }); return; }
           if (card.subtype === 'clear') { socket.emit('play_card', { cardUid: card.uid, targetRow: null }); return; }
           if (card.subtype === 'scorch') { socket.emit('play_card', { cardUid: card.uid, targetRow: null }); return; }
+          if (card.subtype === 'spy') { socket.emit('play_card', { cardUid: card.uid, targetRow: 'close' }); return; }
         });
       }
       container.appendChild(el);
@@ -785,8 +786,10 @@ function doDecoyPick(boardCardUid) {
 }
 
 function isValidDrop(card, side, row) {
+  // Spy goes on opponent's close row
+  if (card.subtype === 'spy') return side === 'opp' && row === 'close';
   if (side !== 'my') return false;
-  if (card.subtype === 'spy') return false; // spy plays on opp but handled server-side via click
+  // Weather, scorch, clear can be dropped anywhere on my side (server ignores targetRow)
   if (card.type === 'weather' || card.subtype === 'clear' || card.subtype === 'scorch') return true;
   if (card.subtype === 'horn' || card.subtype === 'decoy') return true;
   if (card.subtype === 'agile') return ['close','ranged'].includes(row);
@@ -924,8 +927,7 @@ socket.on('game_start', ({ yourFaction, opponentFaction, youGoFirst }) => {
   document.getElementById('lobby').classList.add('hidden');
   document.getElementById('game').style.display = 'flex';
   document.getElementById('game').style.flexDirection = 'column';
-  
-  addLog(`Game started! You are ${yourFaction === 'northern' ? 'Northern Realms' : 'Nilfgaard'}. ${youGoFirst ? 'You go first!' : 'Opponent goes first.'}`, true);
+    addLog(`Game started! You are ${yourFaction === 'northern' ? 'Northern Realms' : 'Nilfgaard'}. ${youGoFirst ? 'You go first!' : 'Opponent goes first.'}`, true);
   moveLog.push({ msg: `Game started. You: ${yourFaction}`, round: 1, imp: true });
 });
 
