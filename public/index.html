@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gwent — PvP</title>
 <script src="/socket.io/socket.io.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap');
 :root{
@@ -458,73 +457,13 @@ let myFaction = null;
 let moveLog = [];
 let logVisible = true;
 
-// ── Audio ─────────────────────────────────────────────────────
+// ── Audio (disabled) ──────────────────────────────────────────
 const Snd = (() => {
-  let started = false, muted = false;
-  async function boot() { if (started) return; started = true; await Tone.start(); }
-  const mv  = new Tone.Volume(-4).toDestination();
-  const sv  = new Tone.Volume(-2).connect(mv);
-  const rvb = new Tone.Reverb({ decay: 1.6, preDelay: 0.01, wet: 0.22 }).connect(sv);
-  const rvbB= new Tone.Reverb({ decay: 3.0, preDelay: 0.03, wet: 0.36 }).connect(sv);
-  function now(){ return Tone.now(); }
-  function blip(f,t,d,v,dest,time){ const s=new Tone.Synth({oscillator:{type:t},envelope:{attack:.008,decay:d*.4,sustain:.1,release:d*.6}}).connect(dest||sv);s.triggerAttackRelease(f,d,time||now(),v);setTimeout(()=>s.dispose(),(d+1)*1000); }
-  function metal(f,d,v,time){ const s=new Tone.MetalSynth({frequency:f,envelope:{attack:.001,decay:d,release:.1},harmonicity:5.1,modulationIndex:32,resonance:4000,octaves:1.5}).connect(sv);s.triggerAttackRelease(f,d,time||now(),v);setTimeout(()=>s.dispose(),(d+1.5)*1000); }
-  function noise(t,d,v,ff,dest,time){ const env=new Tone.AmplitudeEnvelope({attack:.003,decay:d*.7,sustain:0,release:d*.3}).connect(dest||sv);const filt=new Tone.Filter(ff,'bandpass').connect(env);const n=new Tone.Noise(t).connect(filt);const tm=time||now();env.triggerAttack(tm);env.triggerRelease(tm+d*.6);n.start(tm);n.stop(tm+d+.1);setTimeout(()=>{n.dispose();filt.dispose();env.dispose();},(d+1)*1000); }
-  // Pre-built hover nodes — one set, reused forever
-  const _hqg=new Tone.Volume(-34).connect(sv);
-  const _henv=new Tone.AmplitudeEnvelope({attack:.003,decay:.035,sustain:0,release:.012}).connect(_hqg);
-  const _hbp=new Tone.Filter({type:'bandpass',frequency:2800,Q:11}).connect(_henv);
-  const _hn=new Tone.Noise('white').connect(_hbp);
-  // _hn is started on first hover and kept running only while needed
-  let _hnRunning=false, _hBusy=false;
-  function hover(){ if(muted||_hBusy)return;_hBusy=true;if(!_hnRunning){_hn.start();_hnRunning=true;}const t=now();_henv.triggerAttack(t);_henv.triggerRelease(t+.025);setTimeout(()=>{_hBusy=false;},60); }
-  function grab(){ if(muted)return;const t=now();noise('brown',.09,.24,370,sv,t);noise('white',.032,.13,2300,sv,t+.01);const k=new Tone.MembraneSynth({pitchDecay:.028,octaves:2.3,envelope:{attack:.001,decay:.075,sustain:0,release:.032}}).connect(sv);k.triggerAttackRelease('G2',.08,t,.4);setTimeout(()=>k.dispose(),500); }
-  function drop(){ if(muted)return;const t=now();const k=new Tone.MembraneSynth({pitchDecay:.055,octaves:4,envelope:{attack:.001,decay:.24,sustain:0,release:.1}}).connect(rvb);k.triggerAttackRelease('D1',.28,t,.72);setTimeout(()=>k.dispose(),800);noise('brown',.05,.42,220,sv,t);noise('white',.032,.16,1100,sv,t+.01); }
-  function draw(){ if(muted)return;const t=now();noise('white',.075,.18,1700,rvb,t);noise('pink',.052,.11,660,sv,t+.01);blip('A5','sine',.05,.04,rvb,t+.006); }
-  function sel(){ if(muted)return;const t=now();blip('C6','triangle',.09,.11,rvb,t);metal(1750,.04,.15,t+.006); }
-  // ── Special card SFX ──
-  function spySfx(){ if(muted)return;const t=now();// sneaky descending whistle
-    blip('G5','sine',.12,.13,rvb,t);blip('E5','sine',.1,.1,rvb,t+.1);blip('C5','sine',.14,.09,rvb,t+.19);noise('white',.06,.08,3200,sv,t+.28); }
-  function decoysfx(){ if(muted)return;const t=now();// poof / illusion
-    noise('pink',.18,.35,900,rvbB,t);blip('C6','triangle',.06,.12,rvb,t+.04);blip('G5','triangle',.06,.08,rvb,t+.1);blip('C7','triangle',.05,.06,rvb,t+.16); }
-  function tightBondSfx(){ if(muted)return;const t=now();// satisfying double-thunk
-    const k=new Tone.MembraneSynth({pitchDecay:.04,octaves:3,envelope:{attack:.001,decay:.14,sustain:0,release:.06}}).connect(sv);k.triggerAttackRelease('G2',.1,t,.65);setTimeout(()=>k.dispose(),600);const k2=new Tone.MembraneSynth({pitchDecay:.04,octaves:3,envelope:{attack:.001,decay:.14,sustain:0,release:.06}}).connect(sv);k2.triggerAttackRelease('G2',.1,t+.09,.5);setTimeout(()=>k2.dispose(),700);blip('D5','triangle',.1,.1,rvb,t+.18); }
-  function musterSfx(){ if(muted)return;const t=now();// marching drumroll swell
-    for(let i=0;i<5;i++){const k=new Tone.MembraneSynth({pitchDecay:.03,octaves:2,envelope:{attack:.001,decay:.09,sustain:0,release:.04}}).connect(sv);k.triggerAttackRelease('C2','16n',t+i*.06,.3+i*.1);setTimeout(()=>k.dispose(),800);}
-    blip('C4','sawtooth',.3,.14,rvbB,t+.32);blip('G4','sawtooth',.28,.12,rvbB,t+.46); }
-  function moraleSfx(){ if(muted)return;const t=now();// uplifting horn stab
-    blip('C4','sawtooth',.22,.16,rvbB,t);blip('E4','sawtooth',.2,.14,rvbB,t+.06);blip('G4','sawtooth',.3,.18,rvbB,t+.12);metal(900,.12,.18,t+.32); }
-  function scorch(){ if(muted)return;const t=now();noise('brown',.65,.6,270,rvbB,t);noise('white',.45,.4,840,rvbB,t+.04);const boom=new Tone.MembraneSynth({pitchDecay:.1,octaves:5,envelope:{attack:.001,decay:.38,sustain:0,release:.16}}).connect(rvbB);boom.triggerAttackRelease('A0',.46,t,.85);setTimeout(()=>boom.dispose(),1800);for(let i=0;i<4;i++)metal(800+Math.random()*1100,.04+Math.random()*.055,.12+Math.random()*.17,t+.08+Math.random()*.3); }
-  function weatherSfx(){ if(muted)return;const t=now();noise('white',.55,.33,390,rvbB,t);blip('F1','sine',.5,.16,rvbB,t); }
-  function hornSfx(){ if(muted)return;const t=now();['C3','G3','C4','E4'].forEach((n,i)=>{blip(n,'sawtooth',.48,.18-i*.03,rvbB,t+i*.02);blip(n,'square',.36,.07,rvb,t+i*.02);}); }
-  function medicSfx(){ if(muted)return;const t=now();['C5','E5','G5','C6'].forEach((n,i)=>{blip(n,'sine',.4,.11-i*.014,rvbB,t+i*.085);metal(Tone.Frequency(n).toFrequency()*2,.25,.09,t+i*.085+.013);}); }
-  function heroSfx(faction){ if(muted)return;const t=now();const notes=faction==='nilfgaard'?['D3','F3','Ab3','D4','F4']:['C3','C4','E4','G4','C5'];const boom=new Tone.MembraneSynth({pitchDecay:.09,octaves:5,envelope:{attack:.001,decay:.4,sustain:0,release:.16}}).connect(rvbB);boom.triggerAttackRelease('C1',.46,t,.85);setTimeout(()=>boom.dispose(),1700);notes.forEach((n,i)=>{blip(n,'sawtooth',.28,.17-i*.02,rvbB,t+.04+i*.06);blip(n,'triangle',.24,.07,rvb,t+.04+i*.06);}); }
-  function playCard(card){
-    if(muted)return;
-    if(card.subtype==='hero'){heroSfx(card.faction);return;}
-    if(card.type==='weather'||card.subtype==='clear'){weatherSfx();return;}
-    if(card.subtype==='scorch'){scorch();return;}
-    if(card.subtype==='horn'){hornSfx();return;}
-    if(card.subtype==='spy'){spySfx();return;}
-    if(card.subtype==='decoy'){decoysfx();return;}
-    if(card.ability==='medic'){medicSfx();return;}
-    if(card.ability==='tight_bond'){tightBondSfx();return;}
-    if(card.ability==='muster'){musterSfx();return;}
-    if(card.ability==='morale_boost'){moraleSfx();return;}
-    drop();const t=now();blip(card.faction==='nilfgaard'?'Ab2':'G2','triangle',.15,.1,rvb,t+.035);
-  }
-  function pass(){ if(muted)return;const t=now();blip('Eb3','triangle',.3,.16,rvb,t);blip('C3','triangle',.4,.13,rvb,t+.24); }
-  function roundWin(){ if(muted)return;const t=now();['G4','B4','D5','G5'].forEach((n,i)=>blip(n,'triangle',.36,.14,rvbB,t+i*.09));metal(1100,.42,.35,t+.42); }
-  function roundLoss(){ if(muted)return;const t=now();['G3','Eb3','C3'].forEach((n,i)=>blip(n,'triangle',.46,.15,rvbB,t+i*.16)); }
-  function victory(){ if(muted)return;const t=now();for(let i=0;i<3;i++){const d=new Tone.MembraneSynth({pitchDecay:.08,octaves:4,envelope:{attack:.001,decay:.4,sustain:0,release:.16}}).connect(rvbB);d.triggerAttackRelease('C1',.45,t+i*.35,.65);setTimeout(()=>d.dispose(),3500);}['C3','G3','C4','E4','G4','C5'].forEach((n,i)=>blip(n,'sawtooth',.9-i*.08,.19-i*.02,rvbB,t+.42+i*.15)); }
-  function defeat(){ if(muted)return;const t=now();noise('white',.02,.78,2800,sv,t);noise('brown',.1,.55,380,rvbB,t+.01);blip('C2','sine',2.1,.22,rvbB,t+.42);blip('G1','sine',1.7,.14,rvbB,t+.72); }
-  function gravOpen(){ if(muted)return;const t=now();const k=new Tone.MembraneSynth({pitchDecay:.04,octaves:2.2,envelope:{attack:.001,decay:.14,sustain:0,release:.06}}).connect(rvbB);k.triggerAttackRelease('A2','8n',t,.6);setTimeout(()=>k.dispose(),700);noise('brown',.38,.36,300,rvbB,t+.04); }
-  function gravClose(){ if(muted)return;const t=now();const s=new Tone.MembraneSynth({pitchDecay:.05,octaves:3.6,envelope:{attack:.001,decay:.36,sustain:0,release:.17}}).connect(rvbB);s.triggerAttackRelease('C1',.4,t,.82);setTimeout(()=>s.dispose(),1500);metal(170,.4,.48,t+.02); }
-  function redrawSfx(){ if(muted)return;const t=now();for(let i=0;i<3;i++){noise('white',.07,.17,1500,rvb,t+i*.08);noise('pink',.045,.11,560,sv,t+i*.08+.016);}blip('D5','triangle',.08,.06,rvb,t+.24); }
-  function setMute(v){ muted=v;mv.mute=v; }
-  function isMuted(){ return muted; }
-  async function start(){ await boot(); }
-  return { start, setMute, isMuted, hover, grab, drop, draw, sel, playCard, scorch, pass, roundWin, roundLoss, victory, defeat, gravOpen, gravClose, redrawSfx };
+  const noop = () => {};
+  return { start:noop, setMute:noop, isMuted:()=>false, hover:noop, grab:noop,
+           drop:noop, draw:noop, sel:noop, playCard:noop, scorch:noop, pass:noop,
+           roundWin:noop, roundLoss:noop, victory:noop, defeat:noop,
+           gravOpen:noop, gravClose:noop, redrawSfx:noop };
 })();
 
 // ── WebGL card renderer ────────────────────────────────────────
@@ -569,17 +508,33 @@ function initCardGL(canvas, card, staticGL) {
   gl.uniform1f(gl.getUniformLocation(prog, 'u_h'), isH);
   gl.uniform1f(gl.getUniformLocation(prog, 'u_f'), fac);
   gl.uniform1f(gl.getUniformLocation(prog, 'u_s'), isSpc);
-  let raf = null, t0 = performance.now();
-  function render(ts) { gl.uniform1f(uT, (performance.now()-t0)/1000); gl.viewport(0,0,W,H); gl.clear(gl.COLOR_BUFFER_BIT); gl.drawArrays(gl.TRIANGLE_STRIP,0,4); raf = requestAnimationFrame(render); }
+  const t0 = performance.now();
   if (staticGL) {
-    // Single static paint for board cards — no ongoing RAF
     gl.uniform1f(uT, 0); gl.viewport(0,0,W,H); gl.clear(gl.COLOR_BUFFER_BIT); gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
     canvas._stop = () => {};
+    canvas._glTick = null;
   } else {
-    render();
-    canvas._stop = () => { if (raf) cancelAnimationFrame(raf); };
+    // Register with the shared RAF loop instead of spawning a new one
+    canvas._glTick = () => {
+      gl.uniform1f(uT, (performance.now()-t0)/1000);
+      gl.viewport(0,0,W,H); gl.clear(gl.COLOR_BUFFER_BIT); gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+    };
+    canvas._stop = () => { canvas._glTick = null; };
+    _sharedRAFCanvases.add(canvas);
   }
 }
+
+// ── Shared RAF loop — one rAF drives ALL animated hand cards ───
+const _sharedRAFCanvases = new Set();
+(function sharedLoop() {
+  _sharedRAFCanvases.forEach(c => {
+    if (!c._glTick) { _sharedRAFCanvases.delete(c); return; }
+    // Only tick if still in DOM
+    if (!c.isConnected) { c._glTick = null; _sharedRAFCanvases.delete(c); return; }
+    try { c._glTick(); } catch(e) { c._glTick = null; _sharedRAFCanvases.delete(c); }
+  });
+  requestAnimationFrame(sharedLoop);
+})();
 
 function makeCardEl(card, isBig, opts = {}) {
   const el = document.createElement('div');
