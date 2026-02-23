@@ -448,10 +448,13 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 'use strict';
 // ── Socket ───────────────────────────────────────────────────
 const socket = io({ transports: ['polling', 'websocket'], upgrade: true });
-socket.on('connect_error', () => {
+socket.on('connect', () => { console.log('[socket] connected:', socket.id); document.getElementById('lob-status').textContent = ''; });
+socket.on('connect_error', (err) => {
+  console.error('[socket] connect_error:', err.message);
   const el = document.getElementById('lob-status');
-  if (el) { el.textContent = 'Connection error — retrying…'; el.style.color = 'var(--red-l)'; }
+  if (el) { el.textContent = 'Connection error: ' + err.message; el.style.color = 'var(--red-l)'; }
 });
+socket.on('disconnect', (reason) => { console.warn('[socket] disconnected:', reason); });
 
 // ── Client state ─────────────────────────────────────────────
 let GS = null;          // last server state snapshot
