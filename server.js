@@ -14,8 +14,10 @@ const io     = new Server(server, {
   transports: ['websocket', 'polling'],
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
-app.get('*', (_, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+const PUBLIC = path.join(__dirname, 'public');
+app.use(express.static(PUBLIC));
+app.get('/health', (_, res) => res.send('ok'));
+app.get('*', (_, res) => res.sendFile(path.join(PUBLIC, 'index.html')));
 
 // ── Room registry ──────────────────────────────────────────────
 const rooms = {};
@@ -571,4 +573,4 @@ setInterval(() => {
 }, 60000);
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Gwent PvP on :${PORT}`));
+server.listen(PORT, '0.0.0.0', () => console.log(`Gwent PvP on 0.0.0.0:${PORT}`));
