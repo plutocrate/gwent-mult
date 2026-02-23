@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gwent — PvP</title>
 <script src="/socket.io/socket.io.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap');
 :root{
@@ -458,77 +457,10 @@ let myFaction = null;
 let moveLog = [];
 let logVisible = true;
 
-// ── Audio ─────────────────────────────────────────────────────
-const Snd = (() => {
-  let started = false, muted = false, bgParts = [];
-  async function boot() { if (started) return; started = true; await Tone.start(); }
-  const mv  = new Tone.Volume(-4).toDestination();
-  const sv  = new Tone.Volume(-2).connect(mv);
-  const bv  = new Tone.Volume(-11).connect(mv);
-  const rvb = new Tone.Reverb({ decay: 1.6, preDelay: 0.01, wet: 0.22 }).connect(sv);
-  const rvbB= new Tone.Reverb({ decay: 3.0, preDelay: 0.03, wet: 0.36 }).connect(sv);
-  function now(){ return Tone.now(); }
-  function blip(f,t,d,v,dest,time){ const s=new Tone.Synth({oscillator:{type:t},envelope:{attack:.008,decay:d*.4,sustain:.1,release:d*.6}}).connect(dest||sv);s.triggerAttackRelease(f,d,time||now(),v);setTimeout(()=>s.dispose(),(d+1)*1000); }
-  function metal(f,d,v,time){ const s=new Tone.MetalSynth({frequency:f,envelope:{attack:.001,decay:d,release:.1},harmonicity:5.1,modulationIndex:32,resonance:4000,octaves:1.5}).connect(sv);s.triggerAttackRelease(f,d,time||now(),v);setTimeout(()=>s.dispose(),(d+1.5)*1000); }
-  function noise(t,d,v,ff,dest,time){ const env=new Tone.AmplitudeEnvelope({attack:.003,decay:d*.7,sustain:0,release:d*.3}).connect(dest||sv);const filt=new Tone.Filter(ff,'bandpass').connect(env);const n=new Tone.Noise(t).connect(filt);const tm=time||now();env.triggerAttack(tm);env.triggerRelease(tm+d*.6);n.start(tm);n.stop(tm+d+.1);setTimeout(()=>{n.dispose();filt.dispose();env.dispose();},(d+1)*1000); }
-  function hover(){ if(muted)return;const t=now();const qg=new Tone.Volume(-34).connect(sv);const env=new Tone.AmplitudeEnvelope({attack:.003,decay:.035,sustain:0,release:.012}).connect(qg);const bp=new Tone.Filter({type:'bandpass',frequency:2800,Q:11}).connect(env);const n=new Tone.Noise('white').connect(bp);n.start(t);env.triggerAttack(t);env.triggerRelease(t+.025);setTimeout(()=>{try{n.stop();n.dispose();bp.dispose();env.dispose();qg.dispose();}catch(e){}},250); }
-  function grab(){ if(muted)return;const t=now();noise('brown',.09,.24,370,sv,t);noise('white',.032,.13,2300,sv,t+.01);const k=new Tone.MembraneSynth({pitchDecay:.028,octaves:2.3,envelope:{attack:.001,decay:.075,sustain:0,release:.032}}).connect(sv);k.triggerAttackRelease('G2',.08,t,.4);setTimeout(()=>k.dispose(),500); }
-  function drop(){ if(muted)return;const t=now();const k=new Tone.MembraneSynth({pitchDecay:.055,octaves:4,envelope:{attack:.001,decay:.24,sustain:0,release:.1}}).connect(rvb);k.triggerAttackRelease('D1',.28,t,.72);setTimeout(()=>k.dispose(),800);noise('brown',.05,.42,220,sv,t);noise('white',.032,.16,1100,sv,t+.01); }
-  function draw(){ if(muted)return;const t=now();noise('white',.075,.18,1700,rvb,t);noise('pink',.052,.11,660,sv,t+.01);blip('A5','sine',.05,.04,rvb,t+.006); }
-  function sel(){ if(muted)return;const t=now();blip('C6','triangle',.09,.11,rvb,t);metal(1750,.04,.15,t+.006); }
-  function playCard(card){ if(muted)return;if(card.subtype==='hero'){heroSfx(card.faction);return;}if(card.type==='weather'||card.subtype==='clear'){weatherSfx();return;}if(card.subtype==='scorch'){scorch();return;}if(card.subtype==='horn'){hornSfx();return;}if(card.ability==='medic'){medicSfx();return;}drop();const t=now();blip(card.faction==='nilfgaard'?'Ab2':'G2','triangle',.15,.1,rvb,t+.035); }
-  function scorch(){ if(muted)return;const t=now();noise('brown',.65,.6,270,rvbB,t);noise('white',.45,.4,840,rvbB,t+.04);const boom=new Tone.MembraneSynth({pitchDecay:.1,octaves:5,envelope:{attack:.001,decay:.38,sustain:0,release:.16}}).connect(rvbB);boom.triggerAttackRelease('A0',.46,t,.85);setTimeout(()=>boom.dispose(),1800);for(let i=0;i<4;i++)metal(800+Math.random()*1100,.04+Math.random()*.055,.12+Math.random()*.17,t+.08+Math.random()*.3); }
-  function weatherSfx(){ if(muted)return;const t=now();noise('white',.55,.33,390,rvbB,t);blip('F1','sine',.5,.16,rvbB,t); }
-  function hornSfx(){ if(muted)return;const t=now();['C3','G3','C4','E4'].forEach((n,i)=>{blip(n,'sawtooth',.48,.18-i*.03,rvbB,t+i*.02);blip(n,'square',.36,.07,rvb,t+i*.02);}); }
-  function medicSfx(){ if(muted)return;const t=now();['C5','E5','G5','C6'].forEach((n,i)=>{blip(n,'sine',.4,.11-i*.014,rvbB,t+i*.085);metal(Tone.Frequency(n).toFrequency()*2,.25,.09,t+i*.085+.013);}); }
-  function heroSfx(faction){ if(muted)return;const t=now();const notes=faction==='nilfgaard'?['D3','F3','Ab3','D4','F4']:['C3','C4','E4','G4','C5'];const boom=new Tone.MembraneSynth({pitchDecay:.09,octaves:5,envelope:{attack:.001,decay:.4,sustain:0,release:.16}}).connect(rvbB);boom.triggerAttackRelease('C1',.46,t,.85);setTimeout(()=>boom.dispose(),1700);notes.forEach((n,i)=>{blip(n,'sawtooth',.28,.17-i*.02,rvbB,t+.04+i*.06);blip(n,'triangle',.24,.07,rvb,t+.04+i*.06);}); }
-  function pass(){ if(muted)return;const t=now();blip('Eb3','triangle',.3,.16,rvb,t);blip('C3','triangle',.4,.13,rvb,t+.24); }
-  function roundWin(){ if(muted)return;const t=now();['G4','B4','D5','G5'].forEach((n,i)=>blip(n,'triangle',.36,.14,rvbB,t+i*.09));metal(1100,.42,.35,t+.42); }
-  function roundLoss(){ if(muted)return;const t=now();['G3','Eb3','C3'].forEach((n,i)=>blip(n,'triangle',.46,.15,rvbB,t+i*.16)); }
-  function victory(){ if(muted)return;const t=now();for(let i=0;i<3;i++){const d=new Tone.MembraneSynth({pitchDecay:.08,octaves:4,envelope:{attack:.001,decay:.4,sustain:0,release:.16}}).connect(rvbB);d.triggerAttackRelease('C1',.45,t+i*.35,.65);setTimeout(()=>d.dispose(),3500);}['C3','G3','C4','E4','G4','C5'].forEach((n,i)=>blip(n,'sawtooth',.9-i*.08,.19-i*.02,rvbB,t+.42+i*.15)); }
-  function defeat(){ if(muted)return;const t=now();noise('white',.02,.78,2800,sv,t);noise('brown',.1,.55,380,rvbB,t+.01);blip('C2','sine',2.1,.22,rvbB,t+.42);blip('G1','sine',1.7,.14,rvbB,t+.72); }
-  function gravOpen(){ if(muted)return;const t=now();const k=new Tone.MembraneSynth({pitchDecay:.04,octaves:2.2,envelope:{attack:.001,decay:.14,sustain:0,release:.06}}).connect(rvbB);k.triggerAttackRelease('A2','8n',t,.6);setTimeout(()=>k.dispose(),700);noise('brown',.38,.36,300,rvbB,t+.04); }
-  function gravClose(){ if(muted)return;const t=now();const s=new Tone.MembraneSynth({pitchDecay:.05,octaves:3.6,envelope:{attack:.001,decay:.36,sustain:0,release:.17}}).connect(rvbB);s.triggerAttackRelease('C1',.4,t,.82);setTimeout(()=>s.dispose(),1500);metal(170,.4,.48,t+.02); }
-  function redrawSfx(){ if(muted)return;const t=now();for(let i=0;i<3;i++){noise('white',.07,.17,1500,rvb,t+i*.08);noise('pink',.045,.11,560,sv,t+i*.08+.016);}blip('D5','triangle',.08,.06,rvb,t+.24); }
-  function startBg(){
-    if(bgParts.length>0)stopBg();
-    const lim=new Tone.Limiter(-3).connect(bv);
-    const comp=new Tone.Compressor(-18,4).connect(lim);
-    const dr=new Tone.Reverb({decay:1.2,preDelay:.005,wet:.16}).connect(comp);
-    const ph=new Tone.Reverb({decay:5.5,preDelay:.04,wet:.6}).connect(comp);
-    const pd=new Tone.FeedbackDelay({delayTime:'8n.',feedback:.3,wet:.26}).connect(ph);
-    Tone.Transport.bpm.value=92;
-    const kick=new Tone.MembraneSynth({pitchDecay:.09,octaves:7,envelope:{attack:.001,decay:.36,sustain:0,release:.14}}).connect(new Tone.Volume(1).connect(dr));
-    const kp=new Tone.Sequence((t,v)=>{if(v)kick.triggerAttackRelease('C1','8n',t,v);},[1,0,0,.7,0,0,1,0,1,0,0,0,.6,0,0,.5],'16n');kp.start(0);
-    const sn=new Tone.NoiseSynth({noise:{type:'white'},envelope:{attack:.001,decay:.16,sustain:.01,release:.07}}).connect(new Tone.Filter({frequency:2000,type:'highpass'}).connect(dr));
-    const st=new Tone.Synth({oscillator:{type:'triangle'},envelope:{attack:.001,decay:.06,sustain:0,release:.035}}).connect(new Tone.Volume(-7).connect(dr));
-    const sp=new Tone.Sequence((t,v)=>{if(v>=1){sn.triggerAttackRelease('16n',t,.72);st.triggerAttackRelease('D3','16n',t,.38);}else if(v>0){sn.triggerAttackRelease('32n',t,.16);}},[0,0,0,0,1,0,.2,0,0,.15,0,0,1,0,.2,0],'16n');sp.start(0);
-    const hat=new Tone.MetalSynth({frequency:800,envelope:{attack:.001,decay:.03,release:.01},harmonicity:4,modulationIndex:27,resonance:4600,octaves:1.2}).connect(new Tone.Volume(-11).connect(dr));
-    const hp=new Tone.Sequence((t,v)=>{if(v>0)hat.triggerAttackRelease(800,'32n',t,v);},[.78,0,.42,.28,.78,0,.42,.28,.78,0,.42,0,.78,.28,.42,.55],'16n');hp.start(0);
-    const bf=new Tone.Filter({type:'lowpass',frequency:580,rolloff:-24}).connect(comp);
-    const bas=new Tone.Synth({oscillator:{type:'sine'},envelope:{attack:.016,decay:.38,sustain:.6,release:.18}}).connect(bf);
-    const bh=new Tone.Synth({oscillator:{type:'triangle'},envelope:{attack:.01,decay:.22,sustain:.28,release:.16}}).connect(new Tone.Volume(-10).connect(bf));
-    const bl=new Tone.Part((t,v)=>{bas.triggerAttackRelease(v.n,v.d,t,v.v);bh.triggerAttackRelease(v.n,v.d,t,v.v*.38);},[{time:'0:0:0',n:'C2',d:'4n',v:.82},{time:'0:1:0',n:'C2',d:'8n',v:.65},{time:'0:1:2',n:'Eb2',d:'8n',v:.52},{time:'0:2:0',n:'G2',d:'4n',v:.75},{time:'0:3:0',n:'Bb2',d:'4n',v:.68},{time:'1:0:0',n:'C2',d:'4n.',v:.78},{time:'1:1:2',n:'Bb1',d:'8n',v:.52},{time:'1:2:0',n:'Ab1',d:'4n',v:.72},{time:'1:3:0',n:'G1',d:'8n',v:.6},{time:'1:3:2',n:'F1',d:'8n',v:.48},{time:'2:0:0',n:'Eb2',d:'4n',v:.68},{time:'2:1:0',n:'G2',d:'4n',v:.72},{time:'2:2:0',n:'C2',d:'2n',v:.85},{time:'3:0:0',n:'C2',d:'8n',v:.78},{time:'3:0:2',n:'D2',d:'8n',v:.55},{time:'3:1:0',n:'Eb2',d:'4n',v:.7},{time:'3:2:0',n:'G2',d:'8n',v:.75},{time:'3:2:2',n:'Ab2',d:'8n',v:.6},{time:'3:3:0',n:'G2',d:'4n',v:.72}]);
-    bl.loop=true;bl.loopEnd='4m';bl.start(0);
-    const pv=new Tone.Volume(-7).connect(pd);
-    const pia=new Tone.PolySynth(Tone.Synth,{oscillator:{type:'triangle'},envelope:{attack:.013,decay:1.7,sustain:.11,release:2.8}}).connect(pv);
-    const mel=new Tone.Part((t,v)=>pia.triggerAttackRelease(v.n,v.d,t,v.v),[{time:'2:0:0',n:'C5',d:'2n',v:.7},{time:'2:2:0',n:'Eb5',d:'4n',v:.52},{time:'2:3:0',n:'D5',d:'8n',v:.42},{time:'2:3:2',n:'C5',d:'8n',v:.36},{time:'3:0:0',n:'Bb4',d:'4n.',v:.58},{time:'3:1:2',n:'G4',d:'8n',v:.4},{time:'3:2:0',n:'C5',d:'2n',v:.65},{time:'4:0:0',n:'G5',d:'4n',v:.68},{time:'4:1:0',n:'F5',d:'4n',v:.5},{time:'4:2:0',n:'Eb5',d:'4n',v:.46},{time:'4:3:0',n:'D5',d:'4n',v:.4},{time:'5:0:0',n:'C5',d:'1m',v:.72}]);
-    mel.loop=true;mel.loopEnd='8m';mel.start('2m');
-    const pad=new Tone.PolySynth(Tone.Synth,{oscillator:{type:'sine'},envelope:{attack:2.2,decay:2.8,sustain:.55,release:3.8}}).connect(new Tone.Volume(-22).connect(ph));
-    const padChords=[['C2','G2','Eb3','Bb3'],['Ab1','Eb2','C3','G3'],['G1','D2','Bb2','F3'],['C2','G2','Eb3','Bb3']];
-    let pi=0;const pl=new Tone.Loop(t=>{pad.releaseAll(t);pad.triggerAttack(padChords[pi%4],t+.01,.48);pi++;},'4m');pl.start(0);
-    Tone.Transport.start();
-    bgParts=[kick,kp,sn,st,sp,hat,hp,bas,bh,bf,bl,pia,mel,pad,pl,lim,comp,dr,ph,pd,pv];
-  }
-  function stopBg(){ Tone.Transport.stop();bgParts.forEach(p=>{try{p.stop&&p.stop();p.dispose&&p.dispose();}catch(e){}});bgParts=[]; }
-  function setMute(v){ muted=v;mv.mute=v; }
-  function isMuted(){ return muted; }
-  async function start(){ await boot(); startBg(); }
-  return { start, stop:stopBg, setMute, isMuted, hover, grab, drop, draw, sel, playCard, scorch, pass, roundWin, roundLoss, victory, defeat, gravOpen, gravClose, redrawSfx };
-})();
+const Snd = new Proxy({}, { get: () => () => {} });
 
 // ── WebGL card renderer ────────────────────────────────────────
-function initCardGL(canvas, card) {
+function initCardGL(canvas, card, staticGL) {
   const gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: false });
   if (!gl) return;
   const W = canvas.width, H = canvas.height;
@@ -570,9 +502,15 @@ function initCardGL(canvas, card) {
   gl.uniform1f(gl.getUniformLocation(prog, 'u_f'), fac);
   gl.uniform1f(gl.getUniformLocation(prog, 'u_s'), isSpc);
   let raf = null, t0 = performance.now();
-  function render() { gl.uniform1f(uT, (performance.now()-t0)/1000); gl.viewport(0,0,W,H); gl.clear(gl.COLOR_BUFFER_BIT); gl.drawArrays(gl.TRIANGLE_STRIP,0,4); raf = requestAnimationFrame(render); }
-  render();
-  canvas._stop = () => { if (raf) cancelAnimationFrame(raf); };
+  function render(ts) { gl.uniform1f(uT, (performance.now()-t0)/1000); gl.viewport(0,0,W,H); gl.clear(gl.COLOR_BUFFER_BIT); gl.drawArrays(gl.TRIANGLE_STRIP,0,4); raf = requestAnimationFrame(render); }
+  if (staticGL) {
+    // Single static paint for board cards — no ongoing RAF
+    gl.uniform1f(uT, 0); gl.viewport(0,0,W,H); gl.clear(gl.COLOR_BUFFER_BIT); gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+    canvas._stop = () => {};
+  } else {
+    render();
+    canvas._stop = () => { if (raf) cancelAnimationFrame(raf); };
+  }
 }
 
 function makeCardEl(card, isBig, opts = {}) {
@@ -585,7 +523,8 @@ function makeCardEl(card, isBig, opts = {}) {
   const cvs = document.createElement('canvas');
   cvs.className = 'card-canvas'; cvs.width = W; cvs.height = H;
   el.appendChild(cvs);
-  setTimeout(() => initCardGL(cvs, card), 0);
+  // Board cards: single static render (no RAF loop). Hand cards: animated.
+  setTimeout(() => initCardGL(cvs, card, !!opts.staticGL), 0);
   const face = document.createElement('div'); face.className = 'card-face';
   const tb = document.createElement('div');
   const bc = card.subtype==='hero'?'hero':card.subtype==='agile'?'agile':card.type==='weather'?'special':['scorch','horn','decoy','clear'].includes(card.subtype)?'special':(card.row||'close');
@@ -605,23 +544,44 @@ function makeCardEl(card, isBig, opts = {}) {
   fr.appendChild(dot); fr.appendChild(rt); bot.appendChild(fr);
   if (card.ability) { const at = document.createElement('div'); at.className = 'card-ability-tag'; at.textContent = card.ability.replace(/_/g,' '); bot.appendChild(at); }
   face.appendChild(bot); el.appendChild(face);
-  el.addEventListener('mouseenter', e => { if (!dragState.card) { Snd.hover(); showTT(card, e); } });
+  el.addEventListener('mouseenter', e => { if (!dragState.card) { showTT(card, e); } });
   el.addEventListener('mouseleave', hideTT);
   return el;
 }
 
 // ── Render ────────────────────────────────────────────────────
+// Track board state as JSON strings for diffing — avoid rebuilding DOM when nothing changed
+const _boardCache = {};
+
+function renderBoardRow(containerId, cards, isMyBoard, state) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const key = containerId + '|' + (awaitDecoy && isMyBoard ? 'decoy' : '');
+  const sig = JSON.stringify(cards.map(c => c.uid)) + key;
+  if (_boardCache[containerId] === sig) return; // nothing changed, skip rebuild
+  _boardCache[containerId] = sig;
+  // Stop existing WebGL loops on static board cards before wiping
+  container.querySelectorAll('canvas').forEach(c => c._stop && c._stop());
+  container.innerHTML = '';
+  cards.forEach(card => {
+    const el = makeCardEl(card, false, { staticGL: true });
+    el.id = 'bc-' + card.uid;
+    if (isMyBoard && awaitDecoy && card.subtype !== 'hero') {
+      el.style.cursor = 'pointer';
+      el.style.border = '2px solid var(--gold)';
+      el.addEventListener('click', () => doDecoyPick(card.uid));
+    }
+    container.appendChild(el);
+  });
+}
+
 function renderState(state) {
   GS = state;
   myTurn = state.turn === socket.id;
-  // Board rows
+  // Board rows — diff-based, only rebuild when cards change
   ['close','ranged','siege'].forEach(row => {
-    // My board
-    const mc = document.getElementById(`my-${row}-cards`);
-    if (mc) { mc.innerHTML = ''; (state.myBoard[row]||[]).forEach(card => { const el = makeCardEl(card, false); el.id = 'bc-'+card.uid; if (awaitDecoy && card.subtype !== 'hero') { el.style.cursor='pointer'; el.style.border='2px solid var(--gold)'; el.addEventListener('click', () => doDecoyPick(card.uid)); } mc.appendChild(el); }); }
-    // Opp board
-    const oc = document.getElementById(`opp-${row}-cards`);
-    if (oc) { oc.innerHTML = ''; (state.oppBoard[row]||[]).forEach(card => { const el = makeCardEl(card, false); oc.appendChild(el); }); }
+    renderBoardRow(`my-${row}-cards`,  state.myBoard[row]||[], true,  state);
+    renderBoardRow(`opp-${row}-cards`, state.oppBoard[row]||[], false, state);
     // Weather badge
     ['my','opp'].forEach(side => {
       const rowEl = document.getElementById(`${side}-${row}-row`);
@@ -641,7 +601,6 @@ function renderState(state) {
     // Row scores
     const msc = document.getElementById(`my-${row}-sc`);
     const osc = document.getElementById(`opp-${row}-sc`);
-    // Compute from board (client-side approximation for display)
     if (msc) { const s = rowScoreLocal(state.myBoard[row]||[], row, state.weather, state.myHorn); msc.textContent = s; msc.className = 'row-rscore' + (s>0?' hi':''); }
     if (osc) { const s = rowScoreLocal(state.oppBoard[row]||[], row, state.weather, state.oppHorn); osc.textContent = s; osc.className = 'row-rscore' + (s>0?' hi':''); }
   });
@@ -703,25 +662,32 @@ function rowScoreLocal(cards, row, weather, horn) {
   return t;
 }
 
+let _handSig = '';
 function renderHand(state) {
   const container = document.getElementById('hand-cards');
-  container.innerHTML = '';
-  (state.myHand || []).forEach(card => {
-    const el = makeCardEl(card, true);
-    if (myTurn && !state.myPassed && state.phase === 'playing') {
-      el.addEventListener('mousedown', e => { if (!awaitDecoy) { e.preventDefault(); startDrag(card, el, e); } });
-      el.addEventListener('touchstart', e => { if (!awaitDecoy) { e.preventDefault(); startDrag(card, el, e.touches[0]); } }, { passive: false });
-      el.addEventListener('click', () => {
-        if (awaitDecoy) return;
-        if (dragState.card) return;
-        // instant-play for weather/clear/scorch
-        if (card.type === 'weather') { Snd.playCard(card); socket.emit('play_card', { cardUid: card.uid, targetRow: null }); return; }
-        if (card.subtype === 'clear') { Snd.playCard(card); socket.emit('play_card', { cardUid: card.uid, targetRow: null }); return; }
-        if (card.subtype === 'scorch') { Snd.playCard(card); socket.emit('play_card', { cardUid: card.uid, targetRow: null }); return; }
-      });
-    }
-    container.appendChild(el);
-  });
+  // Rebuild signature: card uids + turn/passed state (affects interactivity)
+  const sig = JSON.stringify((state.myHand||[]).map(c=>c.uid)) + '|' + myTurn + '|' + state.myPassed + '|' + state.phase + '|' + awaitDecoy;
+  if (_handSig !== sig) {
+    _handSig = sig;
+    // Stop any existing WebGL loops
+    container.querySelectorAll('canvas').forEach(c => c._stop && c._stop());
+    container.innerHTML = '';
+    (state.myHand || []).forEach(card => {
+      const el = makeCardEl(card, true);
+      if (myTurn && !state.myPassed && state.phase === 'playing') {
+        el.addEventListener('mousedown', e => { if (!awaitDecoy) { e.preventDefault(); startDrag(card, el, e); } });
+        el.addEventListener('touchstart', e => { if (!awaitDecoy) { e.preventDefault(); startDrag(card, el, e.touches[0]); } }, { passive: false });
+        el.addEventListener('click', () => {
+          if (awaitDecoy) return;
+          if (dragState.card) return;
+          if (card.type === 'weather') { socket.emit('play_card', { cardUid: card.uid, targetRow: null }); return; }
+          if (card.subtype === 'clear') { socket.emit('play_card', { cardUid: card.uid, targetRow: null }); return; }
+          if (card.subtype === 'scorch') { socket.emit('play_card', { cardUid: card.uid, targetRow: null }); return; }
+        });
+      }
+      container.appendChild(el);
+    });
+  }
   const hc = document.getElementById('hcount');
   if (hc) hc.textContent = `HAND: ${(state.myHand||[]).length}`;
   const pb = document.getElementById('pass-btn');
@@ -745,7 +711,6 @@ const ghost = document.getElementById('drag-ghost');
 
 function startDrag(card, el, e) {
   dragState = { card, el };
-  Snd.grab();
   ghost.innerHTML = '';
   const clone = makeCardEl(card, true);
   clone.style.width = '66px'; clone.style.height = '92px';
@@ -790,7 +755,6 @@ function endDrag(x, y) {
     const card = dragState.card;
     dragState = {};
     if (isValidDrop(card, side, row)) {
-      Snd.drop();
       // Handle decoy special: targetRow = row for horn/normal; for decoy we need to wait for board click
       if (card.subtype === 'decoy') {
         // Signal waiting for board pick
@@ -844,7 +808,6 @@ function setupSpyClick(card) {
 
 // ── Graveyard / Medic ────────────────────────────────────────
 function openGraveyard(side) {
-  Snd.gravOpen();
   const gy = side === 'my' ? (GS?.myGY||[]) : (GS?.oppGY||[]);
   const modal = document.getElementById('grav-modal');
   document.getElementById('grav-title').textContent = `⚰ ${side === 'my' ? 'YOUR' : 'OPPONENT'} GRAVEYARD`;
@@ -863,7 +826,7 @@ function openMedicPicker(gy) {
   eligible.forEach(card => {
     const item = document.createElement('div'); item.className = 'grav-card-item selectable';
     item.innerHTML = `<div class="gc-art">${card.emoji||'🃏'}</div><div class="gc-pwr">${card.power||''}</div><div class="gc-name">${card.name}</div>`;
-    item.addEventListener('click', () => { modal.classList.remove('show'); Snd.gravClose(); socket.emit('medic_pick', { cardUid: card.uid }); Snd.playCard(card); });
+    item.addEventListener('click', () => { modal.classList.remove('show'); socket.emit('medic_pick', { cardUid: card.uid }); });
     container.appendChild(item);
   });
   modal.classList.add('show');
@@ -883,13 +846,11 @@ function openRedrawModal() {
     item.addEventListener('click', () => {
       if (selected.has(card.uid)) { selected.delete(card.uid); item.classList.remove('sel'); }
       else if (selected.size < 3) { selected.add(card.uid); item.classList.add('sel'); }
-      Snd.sel();
-    });
+      });
     container.appendChild(item);
   });
   document.getElementById('redraw-confirm').onclick = () => {
     if (!selected.size) return;
-    Snd.redrawSfx();
     socket.emit('redraw_cards', { uids: Array.from(selected) });
     modal.classList.remove('show');
   };
@@ -959,16 +920,21 @@ socket.on('game_start', ({ yourFaction, opponentFaction, youGoFirst }) => {
   document.getElementById('lobby').classList.add('hidden');
   document.getElementById('game').style.display = 'flex';
   document.getElementById('game').style.flexDirection = 'column';
-  Snd.start();
-  for (let i = 0; i < 4; i++) setTimeout(() => Snd.draw(), 180 + i * 70);
+  for (let i = 0; i < 4; i++) setTimeout(() => , 180 + i * 70);
   addLog(`Game started! You are ${yourFaction === 'northern' ? 'Northern Realms' : 'Nilfgaard'}. ${youGoFirst ? 'You go first!' : 'Opponent goes first.'}`, true);
   moveLog.push({ msg: `Game started. You: ${yourFaction}`, round: 1, imp: true });
 });
 
+let _pendingState = null, _stateRafPending = false;
 socket.on('state', (state) => {
-  // Track log entries
+  // Track log entries immediately
   if (state.log) state.log.forEach(e => { if (!moveLog.find(m => m.msg === e.msg && m.round === e.round)) moveLog.push({ msg: e.msg, round: e.round, imp: e.important }); });
-  renderState(state);
+  // Coalesce rapid state updates — only render on the next animation frame
+  _pendingState = state;
+  if (!_stateRafPending) {
+    _stateRafPending = true;
+    requestAnimationFrame(() => { _stateRafPending = false; if (_pendingState) { renderState(_pendingState); _pendingState = null; } });
+  }
 });
 
 socket.on('round_result', ({ winner, p1s, p2s, gameOver }) => {
@@ -981,9 +947,9 @@ socket.on('round_result', ({ winner, p1s, p2s, gameOver }) => {
   const scores= document.getElementById('rr-scores');
   const btn   = document.getElementById('rr-btn');
 
-  if (iWon) { title.textContent = '⚔ ROUND WON!'; title.style.color='var(--green-l)'; desc.textContent='You outplayed your opponent!'; setTimeout(() => Snd.roundWin(), 200); }
+  if (iWon) { title.textContent = '⚔ ROUND WON!'; title.style.color='var(--green-l)'; desc.textContent='You outplayed your opponent!'; setTimeout(() => , 200); }
   else if (isDraw) { title.textContent = '⚖ DRAW!'; title.style.color='var(--gold-l)'; desc.textContent='An even contest.'; }
-  else { title.textContent = '💀 ROUND LOST'; title.style.color='var(--red-l)'; desc.textContent='Your opponent prevailed.'; setTimeout(() => Snd.roundLoss(), 200); }
+  else { title.textContent = '💀 ROUND LOST'; title.style.color='var(--red-l)'; desc.textContent='Your opponent prevailed.'; setTimeout(() => , 200); }
 
   scores.innerHTML = `<div class="rr-score-chip">YOUR SCORE: ${myScore}</div><div class="rr-score-chip">OPP SCORE: ${oppScore}</div>`;
 
@@ -992,8 +958,8 @@ socket.on('round_result', ({ winner, p1s, p2s, gameOver }) => {
     btn.onclick = () => {
       document.getElementById('rr-modal').classList.remove('show');
       const myRW = GS?.myRW || 0, oppRW = GS?.oppRW || 0;
-      if (myRW > oppRW) { Snd.victory(); addLog('⚔ VICTORY! You won the match!', true); }
-      else if (oppRW > myRW) { Snd.defeat(); addLog('💀 Defeated. Better luck next time.', true); }
+      if (myRW > oppRW) { addLog('⚔ VICTORY! You won the match!', true); }
+      else if (oppRW > myRW) { addLog('💀 Defeated. Better luck next time.', true); }
       else { addLog('⚖ Match drawn!', true); }
       // Show play again after a moment
       setTimeout(() => {
@@ -1060,20 +1026,18 @@ document.getElementById('join-code-input').addEventListener('keydown', e => { if
 // ── Game Controls ─────────────────────────────────────────────
 document.getElementById('pass-btn').addEventListener('click', () => {
   if (!myTurn || !GS || GS.myPassed || GS.phase !== 'playing') return;
-  Snd.pass();
   socket.emit('pass_round');
 });
 
 document.getElementById('redraw-btn').addEventListener('click', openRedrawModal);
 
 document.getElementById('mute-btn').addEventListener('click', () => {
-  const m = !Snd.isMuted(); Snd.setMute(m);
-  document.getElementById('mute-btn').textContent = m ? '🔇' : '🔊';
+  const m = !document.getElementById('mute-btn').textContent = m ? '🔇' : '🔊';
 });
 
-document.getElementById('hist-btn').addEventListener('click', () => { Snd.gravOpen(); openHistoryModal(); });
-document.getElementById('hist-close').addEventListener('click', () => { Snd.gravClose(); document.getElementById('hist-modal').classList.remove('show'); });
-document.getElementById('grav-close').addEventListener('click', () => { Snd.gravClose(); document.getElementById('grav-modal').classList.remove('show'); });
+document.getElementById('hist-btn').addEventListener('click', () => { openHistoryModal(); });
+document.getElementById('hist-close').addEventListener('click', () => { document.getElementById('hist-modal').classList.remove('show'); });
+document.getElementById('grav-close').addEventListener('click', () => { document.getElementById('grav-modal').classList.remove('show'); });
 
 document.getElementById('log-toggle').addEventListener('click', () => {
   const w = document.getElementById('log-wrap');
