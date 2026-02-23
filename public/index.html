@@ -448,31 +448,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 <script>
 'use strict';
 // ── Socket ───────────────────────────────────────────────────
-const socket = io({
-  transports: ['polling', 'websocket'],  // polling first so Railway's proxy can handshake, then upgrades
-  upgrade: true,
-  reconnection: true,
-  reconnectionAttempts: 5,
-  reconnectionDelay: 1000,
-  timeout: 10000,
-});
-
-// ── Connection diagnostics ────────────────────────────────────
-socket.on('connect', () => {
-  const el = document.getElementById('lob-status');
-  if (el && el.textContent === 'Connecting…') el.textContent = '';
-});
-
-socket.on('connect_error', (err) => {
-  const el = document.getElementById('lob-status');
-  if (el) { el.textContent = 'Connection error — retrying…'; el.style.color = 'var(--red-l)'; }
-  console.warn('[socket] connect_error:', err.message);
-});
-
-socket.on('disconnect', (reason) => {
-  console.warn('[socket] disconnected:', reason);
-  if (reason === 'io server disconnect') socket.connect(); // server kicked us, try to reconnect
-});
+const socket = io({ transports: ['websocket'], upgrade: false });
 
 // ── Client state ─────────────────────────────────────────────
 let GS = null;          // last server state snapshot
@@ -499,9 +475,9 @@ const Snd = (() => {
   const _henv=new Tone.AmplitudeEnvelope({attack:.003,decay:.035,sustain:0,release:.012}).connect(_hqg);
   const _hbp=new Tone.Filter({type:'bandpass',frequency:2800,Q:11}).connect(_henv);
   const _hn=new Tone.Noise('white').connect(_hbp);
-  _hn.start();
-  let _hBusy=false;
-  function hover(){ if(muted||_hBusy)return;_hBusy=true;const t=now();_henv.triggerAttack(t);_henv.triggerRelease(t+.025);setTimeout(()=>{_hBusy=false;},60); }
+  // _hn is started on first hover and kept running only while needed
+  let _hnRunning=false, _hBusy=false;
+  function hover(){ if(muted||_hBusy)return;_hBusy=true;if(!_hnRunning){_hn.start();_hnRunning=true;}const t=now();_henv.triggerAttack(t);_henv.triggerRelease(t+.025);setTimeout(()=>{_hBusy=false;},60); }
   function grab(){ if(muted)return;const t=now();noise('brown',.09,.24,370,sv,t);noise('white',.032,.13,2300,sv,t+.01);const k=new Tone.MembraneSynth({pitchDecay:.028,octaves:2.3,envelope:{attack:.001,decay:.075,sustain:0,release:.032}}).connect(sv);k.triggerAttackRelease('G2',.08,t,.4);setTimeout(()=>k.dispose(),500); }
   function drop(){ if(muted)return;const t=now();const k=new Tone.MembraneSynth({pitchDecay:.055,octaves:4,envelope:{attack:.001,decay:.24,sustain:0,release:.1}}).connect(rvb);k.triggerAttackRelease('D1',.28,t,.72);setTimeout(()=>k.dispose(),800);noise('brown',.05,.42,220,sv,t);noise('white',.032,.16,1100,sv,t+.01); }
   function draw(){ if(muted)return;const t=now();noise('white',.075,.18,1700,rvb,t);noise('pink',.052,.11,660,sv,t+.01);blip('A5','sine',.05,.04,rvb,t+.006); }
@@ -994,8 +970,6 @@ function burnCard(el, cb) { if (!el) { cb && cb(); return; } el.classList.add('b
 
 // ── Socket events ─────────────────────────────────────────────
 socket.on('room_created', ({ code }) => {
-  clearTimeout(socket._createRoomTimeout);
-  document.getElementById('btn-create').disabled = false;
   document.getElementById('lob-main').style.display = 'none';
   document.getElementById('lob-join-row').style.display = 'none';
   document.getElementById('lob-waiting').style.display = 'block';
@@ -1004,8 +978,6 @@ socket.on('room_created', ({ code }) => {
 });
 
 socket.on('err', (msg) => {
-  clearTimeout(socket._createRoomTimeout);
-  document.getElementById('btn-create').disabled = false;
   document.getElementById('lob-status').textContent = msg;
   document.getElementById('lob-status').style.color = 'var(--red-l)';
 });
@@ -1098,23 +1070,9 @@ socket.on('opponent_left', () => {
 
 // ── Lobby Events ──────────────────────────────────────────────
 document.getElementById('btn-create').addEventListener('click', () => {
-  if (!socket.connected) {
-    document.getElementById('lob-status').textContent = 'Not connected — please wait…';
-    document.getElementById('lob-status').style.color = 'var(--red-l)';
-    return;
-  }
-  document.getElementById('btn-create').disabled = true;
   socket.emit('create_room');
   document.getElementById('lob-status').textContent = 'Creating room…';
   document.getElementById('lob-status').style.color = 'var(--dim)';
-
-  // Safety timeout: if room_created doesn't fire in 6s, re-enable
-  const timeout = setTimeout(() => {
-    document.getElementById('btn-create').disabled = false;
-    document.getElementById('lob-status').textContent = 'Server not responding — try again.';
-    document.getElementById('lob-status').style.color = 'var(--red-l)';
-  }, 6000);
-  socket._createRoomTimeout = timeout;
 });
 
 document.getElementById('btn-join-show').addEventListener('click', () => {
