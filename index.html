@@ -447,7 +447,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 <script>
 'use strict';
 // ── Socket ───────────────────────────────────────────────────
-const socket = io({ transports: ['websocket'], upgrade: false });
+const socket = io({ transports: ['polling', 'websocket'], upgrade: true });
+socket.on('connect_error', () => {
+  const el = document.getElementById('lob-status');
+  if (el) { el.textContent = 'Connection error — retrying…'; el.style.color = 'var(--red-l)'; }
+});
 
 // ── Client state ─────────────────────────────────────────────
 let GS = null;          // last server state snapshot
